@@ -39,7 +39,6 @@ void dumpMemory(const std::array<std::uint8_t, BFVM_TAPE_SIZE>& cells, size_t ce
         }
     std::cout << "Memory dump:" << '\n'
               << style::underline << "         0   1   2   3   4   5   6   7   8   9" << style::reset << std::endl;
-    //size_t row = 0;
     for (size_t i = 0, row = 0; i <= std::max(lastNonEmpty, cellptr); i++) {
         if (i % 10 == 0) {
             if (row) std::cout << std::endl;
@@ -243,7 +242,7 @@ __attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE
 
         instructions.shrink_to_fit();
     }
-
+    
     auto cell = cells.data() + cellptr;
     auto insp = instructions.data();
     const auto cellBase = cells.data();
