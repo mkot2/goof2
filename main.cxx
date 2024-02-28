@@ -190,8 +190,8 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
                 MOVEOFFSET();
                 const int start = braceStack.back();
                 braceStack.pop_back();
-                instructions[start].data = instructions.size();
-                instructions.push_back(instruction{ jtable[insType::JMP_NOT_ZER], start, 0, 0 });
+                instructions[start].data = instructions.size() - start;
+                instructions.push_back(instruction{ jtable[insType::JMP_NOT_ZER], instructions.size() - start, 0, 0 });
                 break;
             }
             case '.':
@@ -232,10 +232,8 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     auto cell = cells.data() + cellptr;
     auto insp = instructions.data();
     const auto cellBase = cells.data();
-    const auto inspBase = instructions.data();
 
     std::array<char, 1024> outBuffer = { 0 };
-    int bufCount = 0;
 
     goto *insp->jump;
 
@@ -255,18 +253,16 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     LOOP();
 
     _JMP_ZER:
-    if (!(*cell)) [[unlikely]] insp = inspBase + insp->data;
+    if (!*cell) [[unlikely]] insp += insp->data;
     LOOP();
 
     _JMP_NOT_ZER:
-    if (*cell) [[likely]] insp = inspBase + insp->data;
+    if (*cell) [[likely]] insp -= insp->data;
     LOOP();
 
     _PUT_CHR:
     outBuffer.fill(0);
-    #pragma GCC ivdep
-    for (bufCount = 0; bufCount < insp->data; bufCount++)
-        outBuffer[bufCount] = OFFCELL();
+    std::fill_n(outBuffer.begin(), insp->data, OFFCELL());
     std::cout << outBuffer.data();
     LOOP();
 
@@ -298,21 +294,13 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     LOOP();
 
     _SCN_RGT:
-    #pragma GCC ivdep
-    for (int j = 0; true; j += insp->data)
-        if (const auto check = cell + j; !*check) {
-            cell = check;
-            break;
-        }
+    while(*cell) 
+        cell += insp->data;
     LOOP();
     
     _SCN_LFT:
-    #pragma GCC ivdep
-    for (int k = 0; true; k += insp->data)
-        if (const auto check = cell - k; !*check) {
-            cell = check;
-            break;
-        }
+    while(*cell) 
+        cell -= insp->data;
     LOOP();
 
     _INT_END:
