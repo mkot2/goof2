@@ -50,14 +50,14 @@ void dumpMemory(const std::array<std::uint8_t, BFVM_TAPE_SIZE>& cells, size_t ce
     std::cout << std::endl;
 }
 
-__attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::string& code, bool optimize, int eof = 0)
+int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::string& code, bool optimize, int eof = 0)
 {
     struct instruction
     {
-        const void* jump;
+        void* jump;
         int32_t data;
-        const int16_t auxData;
-        const int16_t offset;
+        int16_t auxData;
+        int16_t offset;
     };
 
     std::vector<instruction> instructions;
@@ -74,7 +74,6 @@ __attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE
 
             CLR,
             MUL_CPY,
-            MUL_CPY_VEC,
             SCN_RGT,
             SCN_LFT,
 
@@ -92,7 +91,6 @@ __attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE
 
         jtable[insType::CLR] = &&_CLR;
         jtable[insType::MUL_CPY] = &&_MUL_CPY;
-        jtable[insType::MUL_CPY_VEC] = &&_MUL_CPY_VEC;
         jtable[insType::SCN_RGT] = &&_SCN_RGT;
         jtable[insType::SCN_LFT] = &&_SCN_LFT;
 
@@ -104,9 +102,6 @@ __attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE
 
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
-
-        int vectorCounter = 0;
-        std::vector<int> vectorMap;
 
         if (optimize) {
             code = boost::regex_replace(code, boost::basic_regex(R"([^\+\-\>\<\.\,\]\[])"), "");
@@ -160,12 +155,6 @@ __attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE
                 });
 
             code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]*]))C*([\+\-]+))"), "S${1}");
-
-            code = boost::regex_replace(code, boost::basic_regex(R"(P{3,})"), [&](auto& what) {
-                const std::string whole(what.str());
-                vectorMap.push_back(whole.length());
-                return "V" + whole;
-            });
         }
 
         std::vector<size_t> braceStack;
@@ -228,9 +217,6 @@ __attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE
                 break;
             case 'S':
                 set = true;
-                break;
-            case 'V':
-                instructions.push_back(instruction{ jtable[insType::MUL_CPY_VEC], vectorMap[vectorCounter++], 0, offset });
                 break;
             }
         }
@@ -309,19 +295,6 @@ __attribute__((hot, aligned(64))) int execute(std::array<uint8_t, BFVM_TAPE_SIZE
 
     _MUL_CPY:
     OFFCELLP() += OFFCELL() * insp->auxData;
-    LOOP();
-
-    _MUL_CPY_VEC:
-    const int amount = insp->data;
-    const auto concOffset = insp->offset;
-
-    insp++;
-    #pragma GCC ivdep
-    for (int i = 0; i < amount; i++)
-        *(cell+concOffset+(insp+i)->data) += OFFCELL() * (insp+i)->auxData;
-
-    insp += amount - 1;
-
     LOOP();
 
     _SCN_RGT:
