@@ -11,6 +11,7 @@
 #include <boost/regex.hpp>
 #include "argh.hxx"
 #include "rang.hxx"
+#include "mmx.h"
 
 #define BFVM_TAPE_SIZE 65535
 
@@ -54,7 +55,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 {
     struct instruction
     {
-        void* jump;
+        const void* jump;
         int32_t data;
         int16_t auxData;
         int16_t offset;
@@ -62,7 +63,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
     std::vector<instruction> instructions;
     {
-        enum class insType
+        enum class insType // I wish for implicity to int :(
         {
             ADD_SUB,
             SET,
@@ -74,27 +75,30 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
             CLR,
             MUL_CPY,
+            //MUL_CPY_VEC,
             SCN_RGT,
             SCN_LFT,
 
             INT_END,
         };
 
-        std::map<insType, void*> jtable;
-        jtable[insType::ADD_SUB] = &&_ADD_SUB;
-        jtable[insType::SET] = &&_SET;
-        jtable[insType::PTR_MOV] = &&_PTR_MOV;
-        jtable[insType::JMP_ZER] = &&_JMP_ZER;
-        jtable[insType::JMP_NOT_ZER] = &&_JMP_NOT_ZER;
-        jtable[insType::PUT_CHR] = &&_PUT_CHR;
-        jtable[insType::RAD_CHR] = &&_RAD_CHR;
+        std::map<insType, void*> jtable = {
+            {insType::ADD_SUB, &&_ADD_SUB},
+            {insType::SET, &&_SET},
+            {insType::PTR_MOV, &&_PTR_MOV},
+            {insType::JMP_ZER, &&_JMP_ZER},
+            {insType::JMP_NOT_ZER, &&_JMP_NOT_ZER},
+            {insType::PUT_CHR, &&_PUT_CHR},
+            {insType::RAD_CHR, &&_RAD_CHR},
 
-        jtable[insType::CLR] = &&_CLR;
-        jtable[insType::MUL_CPY] = &&_MUL_CPY;
-        jtable[insType::SCN_RGT] = &&_SCN_RGT;
-        jtable[insType::SCN_LFT] = &&_SCN_LFT;
+            {insType::CLR, &&_CLR},
+            {insType::MUL_CPY, &&_MUL_CPY},
+            //{insType::MUL_CPY_VEC, &&_MUL_CPY_VEC},
+            {insType::SCN_RGT, &&_SCN_RGT},
+            {insType::SCN_LFT, &&_SCN_LFT},
 
-        jtable[insType::INT_END] = &&_INT_END;
+            {insType::INT_END, &&_INT_END}
+        };
 
         int copyloopCounter = 0;
         std::vector<int> copyloopMap;
@@ -102,6 +106,9 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
+/* 
+        int vectorCounter = 0;
+        std::vector<int> vectorMap; */
 
         if (optimize) {
             code = boost::regex_replace(code, boost::basic_regex(R"([^\+\-\>\<\.\,\]\[])"), "");
@@ -154,9 +161,18 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
                 }
                 });
 
-            code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]*]))C*([\+\-]+))"), "S${1}");
-        }
+/*             code = boost::regex_replace(code, boost::basic_regex(R"(P{4,8}C)"), [&](auto& what) {
+                const std::string current = what.str();
+                scanloopMap.push_back(std::count(current.begin(), current.end(), '<'));
+                return "v" + current;
+            }); */
 
+            code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}");
+
+            //code = boost::regex_replace(code, boost::basic_regex(R"((?<=[^\.]\.)[^\.]+?$)"), "");
+
+        }
+        
         std::vector<size_t> braceStack;
         int16_t offset = 0;
         bool set = false;
@@ -218,6 +234,9 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
             case 'S':
                 set = true;
                 break;
+/*             case 'v':
+                instructions.push_back(instruction{ jtable[insType::MUL_CPY_VEC], vectorMap[vectorCounter++], 0, 0 });
+                break; */
             }
         }
         MOVEOFFSET()
@@ -293,15 +312,37 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     OFFCELLP() += OFFCELL() * insp->auxData;
     LOOP();
 
+/*     _MUL_CPY_VEC:
+    simde__m64 maths = simde_mm_set1_pi8(OFFCELL());
+
+    OFFCELLP() += OFFCELL() * insp->auxData;
+    LOOP(); */
+
     _SCN_RGT:
-    while(*cell) 
-        cell += insp->data;
-    LOOP();
+    while(true) {
+        simde__m64 cellstc = simde_mm_set_pi8(*(cell + 7 * insp->data), *(cell + 6 * insp->data), *(cell + 5 * insp->data),
+                                            *(cell + 4 * insp->data), *(cell + 3 * insp->data), *(cell + 2 * insp->data),
+                                            *(cell + 1 * insp->data), *(cell));
+        simde__m64 cmp = simde_mm_cmpeq_pi8(simde_mm_setzero_si64(), cellstc);
+        if (auto idx = __builtin_ffsll(simde_m_to_int64(cmp)); idx) {
+            cell += idx / 8 * insp->data;
+            LOOP();
+        }
+        cell += 8 * insp->data;
+    }
     
     _SCN_LFT:
-    while(*cell) 
-        cell -= insp->data;
-    LOOP();
+    while(true) {
+        simde__m64 cellstc = simde_mm_set_pi8(*(cell - 7 * insp->data), *(cell - 6 * insp->data), *(cell - 5 * insp->data),
+                                            *(cell - 4 * insp->data), *(cell - 3 * insp->data), *(cell - 2 * insp->data),
+                                            *(cell - 1 * insp->data), *(cell));
+        simde__m64 cmp = simde_mm_cmpeq_pi8(simde_mm_setzero_si64(), cellstc);
+        if (auto idx = __builtin_ffsll(simde_m_to_int64(cmp)); idx) {
+            cell -= idx / 8 * insp->data;
+            LOOP();
+        }
+        cell -= 8 * insp->data;
+    }
 
     _INT_END:
     cellptr = cell - cellBase;

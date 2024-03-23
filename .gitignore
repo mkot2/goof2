@@ -2,6 +2,5 @@
 .vscode/c_cpp_properties.json
 .vscode/settings.json
 bfvmcp.exe
-compile.bat
 *.b
 *.bat
