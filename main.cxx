@@ -1,4 +1,5 @@
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <format>
 #include <fstream>
@@ -17,9 +18,9 @@
 
 using namespace rang;
 
-int fold(std::string_view code, size_t& i, char match)
+size_t fold(std::string_view code, size_t& i, char match)
 {
-    int count = 1;
+    size_t count = 1;
     while (i < code.length() - 1 && code[i + 1] == match) { i++; count++; }
     return count;
 }
@@ -30,7 +31,7 @@ std::string processBalanced(std::string_view s, char no1, char no2)
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
 
-void dumpMemory(const std::array<std::uint8_t, BFVM_TAPE_SIZE>& cells, size_t cellptr)
+void dumpMemory(const std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t cellptr)
 {
     size_t lastNonEmpty = 0;
     for (size_t i = BFVM_TAPE_SIZE - 1; i > 0; i--)
@@ -39,26 +40,28 @@ void dumpMemory(const std::array<std::uint8_t, BFVM_TAPE_SIZE>& cells, size_t ce
             break;
         }
     std::cout << "Memory dump:" << '\n'
-              << style::underline << "         0   1   2   3   4   5   6   7   8   9" << style::reset << std::endl;
+              << style::underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |" << std::endl;
     for (size_t i = 0, row = 0; i <= std::max(lastNonEmpty, cellptr); i++) {
         if (i % 10 == 0) {
             if (row) std::cout << std::endl;
-            std::cout << row << std::string(9 - std::to_string(row).length(), ' ');
+            std::cout << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
             row += 10;
         }
-        std::cout << (i == cellptr ? fg::green : fg::reset) << static_cast<unsigned>(cells[i]) << fg::reset << std::string(4 - std::to_string(cells[i]).length(), ' ');
+        std::cout << (i == cellptr ? fg::green : fg::reset) 
+                  << static_cast<unsigned>(cells[i]) << fg::reset << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
     }
-    std::cout << std::endl;
+    std::cout << style::reset << std::endl;
 }
 
-int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::string& code, bool optimize, int eof = 0)
+__attribute((optimize(3),hot,aligned(64)))
+int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
 {
     struct instruction
     {
         const void* jump;
-        int32_t data;
-        int16_t auxData;
-        int16_t offset;
+        const int32_t data;
+        const int16_t auxData;
+        const int16_t offset;
     };
 
     std::vector<instruction> instructions;
@@ -75,11 +78,10 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
             CLR,
             MUL_CPY,
-            //MUL_CPY_VEC,
             SCN_RGT,
             SCN_LFT,
 
-            INT_END,
+            END,
         };
 
         std::map<insType, void*> jtable = {
@@ -93,11 +95,10 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
             {insType::CLR, &&_CLR},
             {insType::MUL_CPY, &&_MUL_CPY},
-            //{insType::MUL_CPY_VEC, &&_MUL_CPY_VEC},
             {insType::SCN_RGT, &&_SCN_RGT},
             {insType::SCN_LFT, &&_SCN_LFT},
 
-            {insType::INT_END, &&_INT_END}
+            {insType::END, &&_END}
         };
 
         int copyloopCounter = 0;
@@ -106,9 +107,6 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
-/* 
-        int vectorCounter = 0;
-        std::vector<int> vectorMap; */
 
         if (optimize) {
             code = boost::regex_replace(code, boost::basic_regex(R"([^\+\-\>\<\.\,\]\[])"), "");
@@ -161,21 +159,17 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
                 }
                 });
 
-/*             code = boost::regex_replace(code, boost::basic_regex(R"(P{4,8}C)"), [&](auto& what) {
-                const std::string current = what.str();
-                scanloopMap.push_back(std::count(current.begin(), current.end(), '<'));
-                return "v" + current;
-            }); */
-
-            code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}");
+            if (!term) code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}"); // We can't really assume in term
 
             //code = boost::regex_replace(code, boost::basic_regex(R"((?<=[^\.]\.)[^\.]+?$)"), "");
 
         }
         
+        std::cout << code;
         std::vector<size_t> braceStack;
         int16_t offset = 0;
         bool set = false;
+        instructions.reserve(code.length());
         #define MOVEOFFSET() if (offset) [[likely]] { instructions.push_back(instruction{ jtable[insType::PTR_MOV], offset, 0, 0}); offset = 0;}
         for (size_t i = 0; i < code.length(); i++) {
             switch (code[i]) {
@@ -184,9 +178,12 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
                 set = false;
                 break;
             case '-':
-                instructions.push_back(instruction{ jtable[set ? insType::SET : insType::ADD_SUB], -fold(code, i, '-'), 0, offset });
+            {               
+                const auto folded = -fold(code, i, '-');
+                instructions.push_back(instruction{ jtable[set ? insType::SET : insType::ADD_SUB], set ? 255 * (-folded / 255 + 1) + folded : folded, 0, offset });
                 set = false;
                 break;
+            }
             case '>':
                 offset += fold(code, i, '>');
                 break;
@@ -205,9 +202,10 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
                 MOVEOFFSET();
                 const int start = braceStack.back();
+                const int sizeminstart = instructions.size() - start;
                 braceStack.pop_back();
-                instructions[start].data = instructions.size() - start;
-                instructions.push_back(instruction{ jtable[insType::JMP_NOT_ZER], instructions.size() - start, 0, 0 });
+                const_cast<int32_t&>(instructions[start].data) = sizeminstart;
+                instructions.push_back(instruction{ jtable[insType::JMP_NOT_ZER], sizeminstart, 0, 0 });
                 break;
             }
             case '.':
@@ -234,13 +232,10 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
             case 'S':
                 set = true;
                 break;
-/*             case 'v':
-                instructions.push_back(instruction{ jtable[insType::MUL_CPY_VEC], vectorMap[vectorCounter++], 0, 0 });
-                break; */
             }
         }
         MOVEOFFSET()
-        instructions.push_back(instruction{ jtable[insType::INT_END], 0, 0, 0 });
+        instructions.push_back(instruction{ jtable[insType::END], 0, 0, 0 });
 
         if (!braceStack.empty())
             return 2;
@@ -251,8 +246,11 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     auto cell = cells.data() + cellptr;
     auto insp = instructions.data();
     const auto cellBase = cells.data();
+    const simde__m64 emp = simde_mm_setzero_si64();
 
     std::array<char, 1024> outBuffer = { 0 };
+    const auto bufferBegin = outBuffer.begin();
+    const auto bufferEnd = outBuffer.end();
 
     goto *insp->jump;
 
@@ -280,13 +278,13 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     LOOP();
 
     _PUT_CHR:
-    outBuffer.fill(0);
-    std::fill_n(outBuffer.begin(), insp->data, OFFCELL());
+    std::fill(bufferBegin, bufferBegin + insp->data, OFFCELL());
+    std::fill(bufferBegin + insp->data, bufferEnd, 0);
     std::cout << outBuffer.data();
     LOOP();
 
     _RAD_CHR:
-    if (int in = std::cin.get(); in == EOF) {
+    if (const int in = std::cin.get(); in == EOF) {
         switch (eof) {
         case 0:
             break;
@@ -312,19 +310,12 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     OFFCELLP() += OFFCELL() * insp->auxData;
     LOOP();
 
-/*     _MUL_CPY_VEC:
-    simde__m64 maths = simde_mm_set1_pi8(OFFCELL());
-
-    OFFCELLP() += OFFCELL() * insp->auxData;
-    LOOP(); */
-
     _SCN_RGT:
     while(true) {
-        simde__m64 cellstc = simde_mm_set_pi8(*(cell + 7 * insp->data), *(cell + 6 * insp->data), *(cell + 5 * insp->data),
+        const simde__m64 cellstc = simde_mm_set_pi8(*(cell + 7 * insp->data), *(cell + 6 * insp->data), *(cell + 5 * insp->data),
                                             *(cell + 4 * insp->data), *(cell + 3 * insp->data), *(cell + 2 * insp->data),
                                             *(cell + 1 * insp->data), *(cell));
-        simde__m64 cmp = simde_mm_cmpeq_pi8(simde_mm_setzero_si64(), cellstc);
-        if (auto idx = __builtin_ffsll(simde_m_to_int64(cmp)); idx) {
+        if (const auto idx = __builtin_ffsll(simde_m_to_int64(simde_mm_cmpeq_pi8(emp, cellstc))); idx) {
             cell += idx / 8 * insp->data;
             LOOP();
         }
@@ -333,20 +324,31 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     
     _SCN_LFT:
     while(true) {
-        simde__m64 cellstc = simde_mm_set_pi8(*(cell - 7 * insp->data), *(cell - 6 * insp->data), *(cell - 5 * insp->data),
+        const simde__m64 cellstc = simde_mm_set_pi8(*(cell - 7 * insp->data), *(cell - 6 * insp->data), *(cell - 5 * insp->data),
                                             *(cell - 4 * insp->data), *(cell - 3 * insp->data), *(cell - 2 * insp->data),
                                             *(cell - 1 * insp->data), *(cell));
-        simde__m64 cmp = simde_mm_cmpeq_pi8(simde_mm_setzero_si64(), cellstc);
-        if (auto idx = __builtin_ffsll(simde_m_to_int64(cmp)); idx) {
+        if (const auto idx = __builtin_ffsll(simde_m_to_int64(simde_mm_cmpeq_pi8(emp, cellstc))); idx) {
             cell -= idx / 8 * insp->data;
             LOOP();
         }
         cell -= 8 * insp->data;
     }
 
-    _INT_END:
+    _END:
     cellptr = cell - cellBase;
     return 0;
+}
+
+void executeExcept(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
+{
+    switch (execute(cells, cellptr, code, optimize, eof, term)) {
+    case 1:
+        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
+        break;
+    case 2:
+        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched open bracket";
+        break;
+    }
 }
 
 int main(int argc, char* argv[])
@@ -367,14 +369,7 @@ int main(int argc, char* argv[])
         std::ifstream in(filename);
         if (std::string code; in.good()) {
             code.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-            switch (execute(cells, cellptr, code, optimize, eof)) {
-            case 1:
-                std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
-                break;
-            case 2:
-                std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched open bracket";
-                break;
-            }
+            executeExcept(cells, cellptr, code, optimize, eof);
             if (sdumpMemory) dumpMemory(cells, cellptr);
         } else {
             std::cout << fg::red << "ERROR:" << fg::reset << " File could not be read";
@@ -386,17 +381,17 @@ int main(int argc, char* argv[])
                   << R"( | | |_ | |  | | |  | |  __|  )" << '\n'
                   << R"( | |__| | |__| | |__| | |     )" << '\n'
                   << R"(  \_____|\____/ \____/|_|     )" << '\n'
-                  << "Goof - an optimizing BF VM, this time written in C++" << '\n'
-                  << "Version 1.2" << '\n'
+                  << "Goof v1.2.1 - an optimizing brainfuck VM" << '\n'
                   << "Type " << fg::cyan << "help" << fg::reset << " to see available commands."
                   << std::endl;
 
         while (true) {
-            std::cout << ">>> ";
+            std::cout << "$ ";
             std::string repl;
             std::cin >> repl;
             std::getchar();
 
+            //TODO: Add a visualiser?
             if (repl.starts_with("help")) {
                 std::cout << style::underline << "General commands:" << style::reset << '\n'
                     << fg::cyan << "help" << fg::reset << " - Displays this list" << '\n'
@@ -412,14 +407,7 @@ int main(int argc, char* argv[])
             } else if (repl.starts_with("exit") || repl.starts_with("quit")) {
                 return 0;
             } else {
-                switch (execute(cells, cellptr, repl, optimize, eof)) {
-                case 1:
-                    std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
-                    break;
-                case 2:
-                    std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched open bracket";
-                    break;
-                }
+                executeExcept(cells, cellptr, repl, optimize, eof, true);
             }
         }
     }
