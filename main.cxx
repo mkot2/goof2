@@ -1,7 +1,5 @@
 #include <array>
-#include <bitset>
 #include <cstdint>
-#include <format>
 #include <fstream>
 #include <ostream>
 #include <iostream>
@@ -14,7 +12,7 @@
 #include "rang.hxx"
 #include "mmx.h"
 
-#define BFVM_TAPE_SIZE 65535
+#define BFVM_DEFAULT_TAPE_SIZE 32768 // Initial size of the cell vector
 
 using namespace rang;
 
@@ -27,14 +25,14 @@ size_t fold(std::string_view code, size_t& i, char match)
 
 std::string processBalanced(std::string_view s, char no1, char no2)
 {
-    const int total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
+    const auto total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
 
-void dumpMemory(const std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t cellptr)
+void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr)
 {
     size_t lastNonEmpty = 0;
-    for (size_t i = BFVM_TAPE_SIZE - 1; i > 0; i--)
+    for (size_t i = cells.size() - 1; i > 0; i--)
         if (cells[i]) {
             lastNonEmpty = i;
             break;
@@ -48,13 +46,13 @@ void dumpMemory(const std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t cellptr
             row += 10;
         }
         std::cout << (i == cellptr ? fg::green : fg::reset) 
-                  << static_cast<unsigned>(cells[i]) << fg::reset << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
+                  << +cells[i] << fg::reset << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
     }
     std::cout << style::reset << std::endl;
 }
 
 __attribute((optimize(3),hot,aligned(64)))
-int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
+int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
 {
     struct instruction
     {
@@ -103,7 +101,6 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
         int copyloopCounter = 0;
         std::vector<int> copyloopMap;
-        std::vector<int> copyloopMulMap;
 
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
@@ -120,16 +117,14 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
             code = boost::regex_replace(code, boost::basic_regex(R"([+-]*(?:\[[+-]+\])+\.*)"), "C");
 
-            code = boost::regex_replace(code, boost::basic_regex(R"(\[>+\])"), [&](auto& what) {
-                const std::string current = what.str();
-                scanloopMap.push_back(std::count(current.begin(), current.end(), '>'));
-                return "R";
-                });
-
-            code = boost::regex_replace(code, boost::basic_regex(R"(\[<+\])"), [&](auto& what) {
-                const std::string current = what.str();
-                scanloopMap.push_back(std::count(current.begin(), current.end(), '<'));
-                return "L";
+            code = boost::regex_replace(code, boost::basic_regex(R"(\[>+\]|\[<+\])"), [&](auto& what) {
+                const auto current = what.str();
+                const auto count = std::count(current.begin(), current.end(), '>') - std::count(current.begin(), current.end(), '<');
+                scanloopMap.push_back(std::abs(count));
+                if (count > 0)
+                    return "R";
+                else
+                    return "L";
                 });
 
             code = boost::regex_replace(code, boost::basic_regex(R"(([RL]+)C|([CRL]+)\.+)"), "${1}${2}");
@@ -149,7 +144,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
                     while (boost::regex_search(start, end, whatL, boost::basic_regex(R"([<>]+[+-]+)"))) {
                         offset += -std::count(whatL[0].begin(), whatL[0].end(), '<') + std::count(whatL[0].begin(), whatL[0].end(), '>');
                         copyloopMap.push_back(offset);
-                        copyloopMulMap.push_back(std::count(whatL[0].begin(), whatL[0].end(), '+') - std::count(whatL[0].begin(), whatL[0].end(), '-'));
+                        copyloopMap.push_back(std::count(whatL[0].begin(), whatL[0].end(), '+') - std::count(whatL[0].begin(), whatL[0].end(), '-'));
                         numOfCopies++;
                         start = whatL[0].second;
                     }
@@ -159,13 +154,12 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
                 }
                 });
 
-            if (!term) code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}"); // We can't really assume in term
+            //if (!term) code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}"); // We can't really assume in term
 
             //code = boost::regex_replace(code, boost::basic_regex(R"((?<=[^\.]\.)[^\.]+?$)"), "");
 
         }
         
-        std::cout << code;
         std::vector<size_t> braceStack;
         int16_t offset = 0;
         bool set = false;
@@ -218,8 +212,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
                 instructions.push_back(instruction{ jtable[insType::CLR], 0, 0, offset });
                 break;
             case 'P':
-                instructions.push_back(instruction{ jtable[insType::MUL_CPY], copyloopMap[copyloopCounter], (int16_t)copyloopMulMap[copyloopCounter], offset });
-                copyloopCounter++;
+                instructions.push_back(instruction{ jtable[insType::MUL_CPY], copyloopMap[copyloopCounter++], (int16_t)copyloopMap[copyloopCounter++], offset });
                 break;        
             case 'R':
                 MOVEOFFSET()
@@ -245,8 +238,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     
     auto cell = cells.data() + cellptr;
     auto insp = instructions.data();
-    const auto cellBase = cells.data();
-    const simde__m64 emp = simde_mm_setzero_si64();
+    auto cellBase = cells.data();
 
     std::array<char, 1024> outBuffer = { 0 };
     const auto bufferBegin = outBuffer.begin();
@@ -266,6 +258,15 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     LOOP();
 
     _PTR_MOV:
+    if (const ptrdiff_t dist = (cell + insp->data) - cellBase; dist >= cells.size()) // Should be enough for an infinite array
+    {
+        // Resolve pointers and stuff
+        const ptrdiff_t currentCell = cell - cellBase;
+        cells.resize(cells.size() / BFVM_DEFAULT_TAPE_SIZE * BFVM_DEFAULT_TAPE_SIZE); // Double it every time
+        cellBase = cells.data();
+        cell = cellBase + currentCell;
+    }
+        
     cell += insp->data;
     LOOP();
 
@@ -312,6 +313,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
 
     _SCN_RGT:
     while(true) {
+        const simde__m64 emp = simde_mm_setzero_si64();
         const simde__m64 cellstc = simde_mm_set_pi8(*(cell + 7 * insp->data), *(cell + 6 * insp->data), *(cell + 5 * insp->data),
                                             *(cell + 4 * insp->data), *(cell + 3 * insp->data), *(cell + 2 * insp->data),
                                             *(cell + 1 * insp->data), *(cell));
@@ -324,6 +326,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     
     _SCN_LFT:
     while(true) {
+        const simde__m64 emp = simde_mm_setzero_si64();
         const simde__m64 cellstc = simde_mm_set_pi8(*(cell - 7 * insp->data), *(cell - 6 * insp->data), *(cell - 5 * insp->data),
                                             *(cell - 4 * insp->data), *(cell - 3 * insp->data), *(cell - 2 * insp->data),
                                             *(cell - 1 * insp->data), *(cell));
@@ -339,7 +342,7 @@ int execute(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::st
     return 0;
 }
 
-void executeExcept(std::array<uint8_t, BFVM_TAPE_SIZE>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
+void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
 {
     switch (execute(cells, cellptr, code, optimize, eof, term)) {
     case 1:
@@ -362,7 +365,8 @@ int main(int argc, char* argv[])
     int eof = 0; cmdl("eof", 0) >> eof;
 
     size_t cellptr = 0;
-    std::array<uint8_t, BFVM_TAPE_SIZE> cells{ 0 };
+    std::vector<uint8_t> cells;
+    cells.assign(BFVM_DEFAULT_TAPE_SIZE, 0);
     if (help) {
         std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
     } else if (!filename.empty()) {
@@ -401,7 +405,7 @@ int main(int argc, char* argv[])
                     << fg::cyan << "dump" << fg::reset << " - Displays values of memory cells, cell highlighted in " << fg::green << "green" << fg::reset << " is the cell currently pointed to" << '\n';
             } else if (repl.starts_with("clear")) {
                 cellptr = 0;
-                cells.fill(0);
+                cells.assign(BFVM_DEFAULT_TAPE_SIZE, 0);
             } else if (repl.starts_with("dump")) {
                 dumpMemory(cells, cellptr);
             } else if (repl.starts_with("exit") || repl.starts_with("quit")) {
