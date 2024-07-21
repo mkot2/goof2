@@ -1,3 +1,13 @@
+/*
+    Goof - An optimizing brainfuck VM
+    Version 1.3.0
+    Now with random crashes!
+
+    Made by M.K.
+    2023-2024
+    Published under the CC0-1.0 license
+*/
+
 #include <array>
 #include <cstdint>
 #include <fstream>
@@ -11,8 +21,6 @@
 #include "argh.hxx"
 #include "rang.hxx"
 #include "mmx.h"
-
-#define BFVM_DEFAULT_TAPE_SIZE 32768 // Initial size of the cell vector
 
 using namespace rang;
 
@@ -51,8 +59,7 @@ void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr)
     std::cout << style::reset << std::endl;
 }
 
-__attribute((optimize(3),hot,aligned(64)))
-int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
+int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
 {
     struct instruction
     {
@@ -244,29 +251,34 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     const auto bufferBegin = outBuffer.begin();
     const auto bufferEnd = outBuffer.end();
 
+    // Really not my fault if we die here
     goto *insp->jump;
 
 #define LOOP() insp++; goto *insp->jump
+// This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh well
+#define EXPAND_IF_NEEDED() if (const ptrdiff_t currentCell = cell - cellBase; insp->offset > 0 && currentCell+insp->offset >= cells.size()) {cells.resize(cells.size() * 2);cellBase = cells.data();cell = &cells[currentCell];}
+// TODO: Fix
+#define EXPAND_IF_NEEDED_MUL() if (const ptrdiff_t currentCell = cell - cellBase; (insp->offset > 0 || insp->data > 0) && currentCell+insp->offset+insp->data >= cells.size()) {cells.resize(cells.size() * 2);cellBase = cells.data();cell = &cells[currentCell];}
 #define OFFCELL() *(cell+insp->offset)
 #define OFFCELLP() *(cell+insp->offset+insp->data)
     _ADD_SUB:
+    if (dynamicSize) EXPAND_IF_NEEDED()
     OFFCELL() += insp->data;
     LOOP();
 
     _SET:
+    if (dynamicSize) EXPAND_IF_NEEDED()
     OFFCELL() = insp->data;
     LOOP();
 
     _PTR_MOV:
-    if (const ptrdiff_t dist = (cell + insp->data) - cellBase; dist >= cells.size()) // Should be enough for an infinite array
-    {
-        // Resolve pointers and stuff
-        const ptrdiff_t currentCell = cell - cellBase;
-        cells.resize(cells.size() / BFVM_DEFAULT_TAPE_SIZE * BFVM_DEFAULT_TAPE_SIZE); // Double it every time
-        cellBase = cells.data();
-        cell = cellBase + currentCell;
+    if (dynamicSize) {
+        if (const ptrdiff_t currentCell = cell - cellBase; insp->data > 0 && (currentCell + insp->data) >= cells.size()) {
+            cells.resize(cells.size() * 2);
+            cellBase = cells.data();
+            cell = &cells[currentCell];
+        }
     }
-        
     cell += insp->data;
     LOOP();
 
@@ -285,6 +297,7 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     LOOP();
 
     _RAD_CHR:
+    if (dynamicSize) EXPAND_IF_NEEDED()
     if (const int in = std::cin.get(); in == EOF) {
         switch (eof) {
         case 0:
@@ -304,14 +317,29 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     LOOP();
 
     _CLR:
+    if (dynamicSize) EXPAND_IF_NEEDED()
     OFFCELL() = 0;
     LOOP();
 
     _MUL_CPY:
+    if (dynamicSize) EXPAND_IF_NEEDED()
     OFFCELLP() += OFFCELL() * insp->auxData;
     LOOP();
 
     _SCN_RGT:
+    if (dynamicSize) {
+        // Guarantee an empty cell
+        const auto aSize = cells.size();
+        const ptrdiff_t currentCell = cell - cellBase;
+        const auto mod1 = aSize % insp->data;
+        const auto mod2 = (aSize - currentCell) % insp->data;
+        if (cells[aSize - mod1 - 1] || cells[aSize - mod2 - 1]) { // I can't math so check them both, it works
+            cells.resize(cells.size() * 2);
+            cellBase = cells.data();
+            cell = &cells[currentCell];
+        }
+    }
+
     while(true) {
         const simde__m64 emp = simde_mm_setzero_si64();
         const simde__m64 cellstc = simde_mm_set_pi8(*(cell + 7 * insp->data), *(cell + 6 * insp->data), *(cell + 5 * insp->data),
@@ -325,6 +353,7 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     }
     
     _SCN_LFT:
+    // Nor will it be mine here
     while(true) {
         const simde__m64 emp = simde_mm_setzero_si64();
         const simde__m64 cellstc = simde_mm_set_pi8(*(cell - 7 * insp->data), *(cell - 6 * insp->data), *(cell - 5 * insp->data),
@@ -342,9 +371,9 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     return 0;
 }
 
-void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool term = false)
+void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
 {
-    switch (execute(cells, cellptr, code, optimize, eof, term)) {
+    switch (execute(cells, cellptr, code, optimize, eof, dynamicSize, term)) {
     case 1:
         std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
         break;
@@ -362,18 +391,20 @@ int main(int argc, char* argv[])
     const bool optimize = !cmdl["nopt"];
     const bool sdumpMemory = cmdl["dm"];
     const bool help = cmdl["h"];
+    const bool dynamicSize = cmdl["dts"];
     int eof = 0; cmdl("eof", 0) >> eof;
+    int ts = 0; cmdl("ts", 30000) >> ts;
 
     size_t cellptr = 0;
     std::vector<uint8_t> cells;
-    cells.assign(BFVM_DEFAULT_TAPE_SIZE, 0);
+    cells.assign(ts, 0);
     if (help) {
         std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
     } else if (!filename.empty()) {
         std::ifstream in(filename);
         if (std::string code; in.good()) {
             code.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-            executeExcept(cells, cellptr, code, optimize, eof);
+            executeExcept(cells, cellptr, code, optimize, eof, dynamicSize);
             if (sdumpMemory) dumpMemory(cells, cellptr);
         } else {
             std::cout << fg::red << "ERROR:" << fg::reset << " File could not be read";
@@ -385,7 +416,7 @@ int main(int argc, char* argv[])
                   << R"( | | |_ | |  | | |  | |  __|  )" << '\n'
                   << R"( | |__| | |__| | |__| | |     )" << '\n'
                   << R"(  \_____|\____/ \____/|_|     )" << '\n'
-                  << "Goof v1.2.1 - an optimizing brainfuck VM" << '\n'
+                  << "Goof v1.3.0 - an optimizing brainfuck VM" << '\n'
                   << "Type " << fg::cyan << "help" << fg::reset << " to see available commands."
                   << std::endl;
 
@@ -405,13 +436,13 @@ int main(int argc, char* argv[])
                     << fg::cyan << "dump" << fg::reset << " - Displays values of memory cells, cell highlighted in " << fg::green << "green" << fg::reset << " is the cell currently pointed to" << '\n';
             } else if (repl.starts_with("clear")) {
                 cellptr = 0;
-                cells.assign(BFVM_DEFAULT_TAPE_SIZE, 0);
+                cells.assign(ts, 0);
             } else if (repl.starts_with("dump")) {
                 dumpMemory(cells, cellptr);
             } else if (repl.starts_with("exit") || repl.starts_with("quit")) {
                 return 0;
             } else {
-                executeExcept(cells, cellptr, repl, optimize, eof, true);
+                executeExcept(cells, cellptr, repl, optimize, eof, dynamicSize, true);
             }
         }
     }
