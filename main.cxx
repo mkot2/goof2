@@ -161,12 +161,9 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
                 }
                 });
 
-            //if (!term) code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}"); // We can't really assume in term
-
-            //code = boost::regex_replace(code, boost::basic_regex(R"((?<=[^\.]\.)[^\.]+?$)"), "");
-
+            if (!term) code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}"); // We can't really assume in term
         }
-        
+
         std::vector<size_t> braceStack;
         int16_t offset = 0;
         bool set = false;
@@ -181,7 +178,7 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
             case '-':
             {               
                 const auto folded = -fold(code, i, '-');
-                instructions.push_back(instruction{ jtable[set ? insType::SET : insType::ADD_SUB], set ? 255 * (-folded / 255 + 1) + folded : folded, 0, offset });
+                instructions.push_back(instruction{ jtable[set ? insType::SET : insType::ADD_SUB], set ? 255 * (-folded / 255 + 1) : folded, 0, offset });
                 set = false;
                 break;
             }
