@@ -40,11 +40,9 @@ std::string processBalanced(std::string_view s, char no1, char no2)
 void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr)
 {
     size_t lastNonEmpty = 0;
-    for (size_t i = cells.size() - 1; i > 0; i--)
-        if (cells[i]) {
-            lastNonEmpty = i;
+    for (lastNonEmpty = cells.size() - 1; lastNonEmpty > cellptr; lastNonEmpty--)
+        if (cells[lastNonEmpty])
             break;
-        }
     std::cout << "Memory dump:" << '\n'
               << style::underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |" << std::endl;
     for (size_t i = 0, row = 0; i <= std::max(lastNonEmpty, cellptr); i++) {
