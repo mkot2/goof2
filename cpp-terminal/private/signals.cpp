@@ -47,9 +47,9 @@ void Term::Private::Signals::setHandler(const sighandler_t& handler) noexcept
   for(std::size_t signal = 0; signal != m_signals_number; ++signal)
   {
 #ifdef _WIN32
-    if(signal != SIGINT) sighandler_t hand = std::signal(signal, handler);
+    if(signal != SIGINT) std::signal(signal, handler);
 #else
-    sighandler_t hand = std::signal(signal, handler);
+    std::signal(signal, handler);
 #endif
   }
 #ifdef _WIN32
@@ -170,8 +170,7 @@ void Term::Private::Signals::reset_and_raise(const int& sign) noexcept
   };
   if(std::find(termin.begin(), termin.end(), sign) != termin.end())
   {
-    sighandler_t old = std::signal(sign, m_handlers[sign]);
-    old              = std::signal(sign, m_handlers[sign]);
+    std::signal(sign, m_handlers[sign]);
     std::raise(sign);
   }
 }
