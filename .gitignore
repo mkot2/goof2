@@ -4,3 +4,4 @@
 bfvmcp.exe
 *.b
 *.bat
+build/
