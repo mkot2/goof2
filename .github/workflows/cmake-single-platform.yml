@@ -1,12 +1,15 @@
-# This starter workflow is for a CMake project running on a single platform. There is a different starter workflow if you need cross-platform coverage.
-# See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
+# This starter workflow is for a CMake project running on a single platform.
+# There is a different starter workflow if you need cross-platform coverage.
+# See:
+# https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
+---
 name: CMake with prebuilt artifacts
 
-on:
+"on":
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -20,13 +23,29 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
+        simd: [sse2, avx2]
     runs-on: ${{ matrix.os }}
+    env:
+      SIMD: ${{ matrix.simd }}
     defaults:
       run:
         shell: bash
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: >-
+            ${{ runner.os }}-${{ matrix.simd }}-ccache-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.simd }}-ccache-
+
+      - name: Install ccache (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ccache
 
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
@@ -37,48 +56,66 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-make
+            mingw-w64-x86_64-ccache
           path-type: inherit
 
       - name: Configure CMake (Linux)
         if: runner.os == 'Linux'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}}
+        run: >
+          cmake -B build
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+            -DCMAKE_C_COMPILER=${{env.CC}}
+            -DCMAKE_CXX_COMPILER=${{env.CXX}}
+            -DCMAKE_C_FLAGS="-m${{env.SIMD}}"
+            -DCMAKE_CXX_FLAGS="-m${{env.SIMD}}"
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}} -G "MinGW Makefiles"
+        run: >
+          cmake -B build
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+            -DCMAKE_C_COMPILER=${{env.CC}}
+            -DCMAKE_CXX_COMPILER=${{env.CXX}}
+            -DCMAKE_C_FLAGS="-m${{env.SIMD}}"
+            -DCMAKE_CXX_FLAGS="-m${{env.SIMD}}"
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -G "MinGW Makefiles"
         shell: msys2 {0}
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
-        run: cmake --build build --config ${{env.BUILD_TYPE}}
+        run: cmake --build build --config ${{env.BUILD_TYPE}} --parallel
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: cmake --build build --config ${{env.BUILD_TYPE}}
+        run: cmake --build build --config ${{env.BUILD_TYPE}} --parallel
         shell: msys2 {0}
 
       - name: Test (Linux)
         if: runner.os == 'Linux'
         working-directory: build
-        run: ctest -C ${{env.BUILD_TYPE}}
+        run: ctest -C ${{env.BUILD_TYPE}} -j$(nproc) --output-on-failure
 
       - name: Test (Windows)
         if: runner.os == 'Windows'
         run: |
           cd build
-          ctest -C ${{env.BUILD_TYPE}}
+          ctest -C ${{env.BUILD_TYPE}} -j$(nproc) --output-on-failure
         shell: msys2 {0}
 
       - name: Upload Linux artifact
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: bfvmcpp-linux
+          name: bfvmcpp-linux-${{ matrix.simd }}
           path: build/bfvmcpp
 
       - name: Upload Windows artifact
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: bfvmcpp-windows
+          name: bfvmcpp-windows-${{ matrix.simd }}
           path: build/bfvmcpp.exe
