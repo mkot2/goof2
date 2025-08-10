@@ -21,6 +21,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -36,18 +39,34 @@ jobs:
             mingw-w64-x86_64-make
           path-type: inherit
 
-      - name: Configure CMake
-        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}} ${{ runner.os == 'Windows' && '-G "MinGW Makefiles"' || '' }}
-        shell: ${{ runner.os == 'Windows' && 'msys2 {0}' || 'bash' }}
+      - name: Configure CMake (Linux)
+        if: runner.os == 'Linux'
+        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}}
 
-      - name: Build
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}} -G "MinGW Makefiles"
+        shell: msys2 {0}
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
         run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-        shell: ${{ runner.os == 'Windows' && 'msys2 {0}' || 'bash' }}
 
-      - name: Test
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+        shell: msys2 {0}
+
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
         working-directory: ${{github.workspace}}/build
         run: ctest -C ${{env.BUILD_TYPE}}
-        shell: ${{ runner.os == 'Windows' && 'msys2 {0}' || 'bash' }}
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ${{github.workspace}}/build
+        run: ctest -C ${{env.BUILD_TYPE}}
+        shell: msys2 {0}
 
       - name: Upload Linux artifact
         if: runner.os == 'Linux'
