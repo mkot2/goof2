@@ -192,7 +192,7 @@ std::string processBalanced(std::string_view s, char no1, char no2)
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
 template<bool Dynamic, bool Term>
-int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof)
+int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof)
 {
     std::vector<instruction> instructions;
     {
@@ -514,19 +514,12 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     return 0;
 }
 
-void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
+int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
 {
     int ret = 0;
-    if (dynamicSize) term ? ret = execute<true, true>(cells, cellptr, code, optimize, eof)
-                          : ret = execute<true, false>(cells, cellptr, code, optimize, eof);
-    else             term ? ret = execute<false, true>(cells, cellptr, code, optimize, eof)
-                          : ret = execute<false, false>(cells, cellptr, code, optimize, eof);
-    switch (ret) {
-    case 1:
-        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
-        break;
-    case 2:
-        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched open bracket";
-        break;
-    }
+    if (dynamicSize) term ? ret = _execute<true, true>(cells, cellptr, code, optimize, eof)
+                          : ret = _execute<true, false>(cells, cellptr, code, optimize, eof);
+    else             term ? ret = _execute<false, true>(cells, cellptr, code, optimize, eof)
+                          : ret = _execute<false, false>(cells, cellptr, code, optimize, eof);
+    return ret;
 }

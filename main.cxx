@@ -40,6 +40,20 @@ void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr)
     std::cout << style::reset << std::endl;
 }
 
+void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
+{
+    int ret = bfvmcpp::execute(cells, cellptr, code, optimize, eof, dynamicSize, term);
+    switch (ret) {
+    case 1:
+        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
+        break;
+    case 2:
+        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched open bracket";
+        break;
+    }
+}
+
+
 int main(int argc, char* argv[])
 {
     argh::parser cmdl(argc, argv, argh::parser::PREFER_PARAM_FOR_UNREG_OPTION);
