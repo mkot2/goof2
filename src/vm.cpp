@@ -253,9 +253,12 @@ std::string processBalanced(std::string_view s, char no1, char no2) {
     const auto total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
-template <bool Dynamic, bool Term, bool Paged>
+
+enum class memory_model { contiguous, paged, fibonacci };
+
+template <bool Dynamic, bool Term>
 int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
-             int eof) {
+             int eof, memory_model model) {
     std::vector<instruction> instructions;
     {
         enum insType {
@@ -471,13 +474,27 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
     std::array<char, 1024> buffer = {0};
 
     constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
+    size_t fibA = cells.size(), fibB = cells.size();
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         size_t needed = static_cast<size_t>(neededIndex + 1);
-        if constexpr (Paged) {
-            size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
-            if (newSize > cells.size()) cells.resize(newSize);
-        } else {
-            while (cells.size() < needed) cells.resize(cells.size() * 2);
+        switch (model) {
+            case memory_model::paged: {
+                size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+                if (newSize > cells.size()) cells.resize(newSize);
+                break;
+            }
+            case memory_model::fibonacci: {
+                while (cells.size() < needed) {
+                    size_t next = fibA + fibB;
+                    fibA = fibB;
+                    fibB = next;
+                    cells.resize(next);
+                }
+                break;
+            }
+            default:
+                while (cells.size() < needed) cells.resize(cells.size() * 2);
+                break;
         }
         cellBase = cells.data();
         cell = cellBase + currentCell;
@@ -653,17 +670,22 @@ _END:
 int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
                      int eof, bool dynamicSize, bool term) {
     int ret = 0;
-    const bool paged = dynamicSize && cells.size() > (1u << 16);  // heuristic switch
+    memory_model model = memory_model::contiguous;
+    // Heuristic: small tapes use contiguous doubling, medium tapes use
+    // Fibonacci growth to trade memory for fewer reallocations, and very
+    // large tapes switch to fixed-size paged allocation.
     if (dynamicSize) {
-        if (paged)
-            term ? ret = _execute<true, true, true>(cells, cellptr, code, optimize, eof)
-                 : ret = _execute<true, false, true>(cells, cellptr, code, optimize, eof);
-        else
-            term ? ret = _execute<true, true, false>(cells, cellptr, code, optimize, eof)
-                 : ret = _execute<true, false, false>(cells, cellptr, code, optimize, eof);
+        if (cells.size() > (1u << 24))
+            model = memory_model::paged;
+        else if (cells.size() > (1u << 16))
+            model = memory_model::fibonacci;
+    }
+    if (dynamicSize) {
+        term ? ret = _execute<true, true>(cells, cellptr, code, optimize, eof, model)
+             : ret = _execute<true, false>(cells, cellptr, code, optimize, eof, model);
     } else {
-        term ? ret = _execute<false, true, false>(cells, cellptr, code, optimize, eof)
-             : ret = _execute<false, false, false>(cells, cellptr, code, optimize, eof);
+        term ? ret = _execute<false, true>(cells, cellptr, code, optimize, eof, model)
+             : ret = _execute<false, false>(cells, cellptr, code, optimize, eof, model);
     }
     return ret;
 }
