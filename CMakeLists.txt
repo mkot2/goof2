@@ -8,6 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(Warnings INTERFACE)
 add_library(Warnings::Warnings ALIAS Warnings)
 
+target_compile_options(Warnings INTERFACE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
+)
+
 add_subdirectory(cpp-terminal)
 
 set(BOOST_REGEX_STANDALONE ON CACHE BOOL "" FORCE)
@@ -26,4 +31,5 @@ target_include_directories(bfvmcpp PRIVATE
 target_link_libraries(bfvmcpp PRIVATE
     Boost::regex
     cpp-terminal::cpp-terminal
+    Warnings
 )
