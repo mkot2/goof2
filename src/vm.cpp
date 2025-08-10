@@ -514,7 +514,7 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
     return 0;
 }
 
-int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
+int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term)
 {
     int ret = 0;
     if (dynamicSize) term ? ret = _execute<true, true>(cells, cellptr, code, optimize, eof)
