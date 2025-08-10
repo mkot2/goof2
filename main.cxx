@@ -104,13 +104,20 @@ int main(int argc, char* argv[]) {
     if (help) {
         std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
     } else if (!filename.empty()) {
-        std::ifstream in(filename);
-        if (std::string code; in.good()) {
-            code.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-            executeExcept(cells, cellptr, code, optimize, eof, dynamicSize);
-            if (sdumpMemory) dumpMemory(cells, cellptr);
+        std::ifstream in(filename, std::ios::binary);
+        if (!in.is_open()) {
+            std::cout << fg::red << "ERROR:" << fg::reset
+                      << " File could not be opened";
         } else {
-            std::cout << fg::red << "ERROR:" << fg::reset << " File could not be read";
+            std::string code((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+            if (!in && !in.eof()) {
+                std::cout << fg::red << "ERROR:" << fg::reset
+                          << " Error while reading file";
+            } else {
+                executeExcept(cells, cellptr, code, optimize, eof, dynamicSize);
+                if (sdumpMemory) dumpMemory(cells, cellptr);
+            }
         }
     } else {
         Term::terminal.setOptions(Term::Option::ClearScreen, Term::Option::NoSignalKeys,

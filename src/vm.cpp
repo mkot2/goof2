@@ -240,11 +240,11 @@ struct instruction {
     const int16_t offset;
 };
 
-size_t fold(std::string_view code, size_t& i, char match) {
-    size_t count = 1;
+int32_t fold(std::string_view code, size_t& i, char match) {
+    int32_t count = 1;
     while (i < code.length() - 1 && code[i + 1] == match) {
-        i++;
-        count++;
+        ++i;
+        ++count;
     }
     return count;
 }
@@ -367,18 +367,20 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
                     set = false;
                     break;
                 case '-': {
-                    const auto folded = -fold(code, i, '-');
+                    const int32_t folded = -fold(code, i, '-');
                     instructions.push_back(
                         instruction{jtable[set ? insType::SET : insType::ADD_SUB],
-                                    set ? (int32_t)(uint8_t)folded : folded, 0, offset});
+                                    set ? static_cast<int32_t>(static_cast<uint8_t>(folded))
+                                        : folded,
+                                    0, offset});
                     set = false;
                     break;
                 }
                 case '>':
-                    offset += fold(code, i, '>');
+                    offset += static_cast<int16_t>(fold(code, i, '>'));
                     break;
                 case '<':
-                    offset -= fold(code, i, '<');
+                    offset -= static_cast<int16_t>(fold(code, i, '<'));
                     break;
                 case '[':
                     MOVEOFFSET();
@@ -410,15 +412,15 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
                 case 'P':
                     instructions.push_back(
                         instruction{jtable[insType::MUL_CPY], copyloopMap[copyloopCounter++],
-                                    (int16_t)copyloopMap[copyloopCounter++], offset});
+                                    static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
                     break;
                 case 'R':
-                    MOVEOFFSET()
+                    MOVEOFFSET();
                     instructions.push_back(instruction{jtable[insType::SCN_RGT],
                                                        scanloopMap[scanloopCounter++], 0, 0});
                     break;
                 case 'L':
-                    MOVEOFFSET()
+                    MOVEOFFSET();
                     instructions.push_back(instruction{jtable[insType::SCN_LFT],
                                                        scanloopMap[scanloopCounter++], 0, 0});
                     break;
@@ -451,12 +453,14 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
     goto * insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
-#define EXPAND_IF_NEEDED()                                                \
-    if (const ptrdiff_t currentCell = cell - cellBase;                    \
-        insp->offset > 0 && currentCell + insp->offset >= cells.size()) { \
-        cells.resize(cells.size() * 2);                                   \
-        cellBase = cells.data();                                          \
-        cell = &cells[currentCell];                                       \
+#define EXPAND_IF_NEEDED()                                                        \
+    if (insp->offset > 0) {                                                       \
+        const ptrdiff_t currentCell = cell - cellBase;                            \
+        if (currentCell + insp->offset >= static_cast<ptrdiff_t>(cells.size())) { \
+            cells.resize(cells.size() * 2);                                       \
+            cellBase = cells.data();                                              \
+            cell = &cells[currentCell];                                           \
+        }                                                                         \
     }
 #define OFFCELL() *(cell + insp->offset)
 #define OFFCELLP() *(cell + insp->offset + insp->data)
@@ -472,8 +476,9 @@ _SET:
 
 _PTR_MOV:
     if constexpr (Dynamic) {
-        if (const ptrdiff_t currentCell = cell - cellBase;
-            insp->data > 0 && (currentCell + insp->data) >= cells.size()) {
+        const ptrdiff_t currentCell = cell - cellBase;
+        if (insp->data > 0 &&
+            currentCell + insp->data >= static_cast<ptrdiff_t>(cells.size())) {
             cells.resize(cells.size() * 2);
             cellBase = cells.data();
             cell = &cells[currentCell];
@@ -495,7 +500,7 @@ _JMP_NOT_ZER:
 _PUT_CHR:
     std::memset(buffer.data(), OFFCELL(), buffer.size());
 
-    size_t left = insp->data;
+    size_t left = static_cast<size_t>(insp->data);
     while (left) {
         const size_t chunk = std::min(left, buffer.size());
         std::cout.write(buffer.data(), chunk);
@@ -519,7 +524,7 @@ _RAD_CHR:
                 __builtin_unreachable();
         }
     } else {
-        OFFCELL() = in;
+        OFFCELL() = static_cast<uint8_t>(in);
     }
     LOOP();
 
@@ -534,11 +539,11 @@ _MUL_CPY:
     LOOP();
 
 _SCN_RGT: {
-    const unsigned step = (unsigned)insp->data;
+    const unsigned step = static_cast<unsigned>(insp->data);
 
     // small pre-grow to cut resize churn during long scans
     if constexpr (Dynamic) {
-        while ((cell - cellBase) + 64 >= (ptrdiff_t)cells.size()) {
+        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size())) {
             const ptrdiff_t rel = cell - cellBase;
             cells.resize(cells.size() * 2);
             cellBase = cells.data();
@@ -552,7 +557,7 @@ _SCN_RGT: {
         if (step == 1) {
             off = simd_scan0_fwd(cell, end);
         } else if (step == 2 || step == 4 || step == 8) {
-            const unsigned phase = posmod((ptrdiff_t)(cell - cellBase), step);
+            const unsigned phase = posmod(static_cast<ptrdiff_t>(cell - cellBase), step);
             off = simd_scan0_fwd_stride(cell, end, step, phase);
         } else {
             // scalar fallback for arbitrary step
@@ -581,7 +586,7 @@ _SCN_RGT: {
 }
 
 _SCN_LFT: {
-    const unsigned step = (unsigned)insp->data;
+    const unsigned step = static_cast<unsigned>(insp->data);
 
     if (cell < cellBase) {
         LOOP();
@@ -592,14 +597,14 @@ _SCN_LFT: {
         cell -= back;
         LOOP();
     } else if (step == 2 || step == 4 || step == 8) {
-        const unsigned phase_at_p = posmod((ptrdiff_t)(cell - cellBase), step);
+        const unsigned phase_at_p = posmod(static_cast<ptrdiff_t>(cell - cellBase), step);
         size_t back = simd_scan0_back_stride(cellBase, cell, step, phase_at_p);
         cell -= back;
         LOOP();
     } else {
         // scalar fallback for arbitrary step
         while (cell >= cellBase && *cell != 0) {
-            if ((cell - cellBase) < (ptrdiff_t)step) break;
+            if ((cell - cellBase) < static_cast<ptrdiff_t>(step)) break;
             cell -= step;
         }
         LOOP();
