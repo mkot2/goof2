@@ -24,6 +24,10 @@ namespace bfvmcpp {
 /// currently not handled.
 /// @param term A few tweaks necessary to make it operable multiple times on the same cells. Check
 /// BFVMCPP_DEFAULT_SAVE_STATE.
+///
+/// When dynamicSize is enabled the engine heuristically selects between a contiguous
+/// growth strategy and a page-sized allocation model for better performance on large
+/// tape sizes.
 /// @return
 int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code,
             bool optimize = BFVMCPP_OPTIMIZE, int eof = BFVMCPP_DEFAULT_EOF_BEHAVIOUR,
