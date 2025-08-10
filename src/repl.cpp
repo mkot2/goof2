@@ -10,9 +10,9 @@
 
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/cursor.hpp"
+#include "cpp-terminal/event.hpp"
 #include "cpp-terminal/input.hpp"
 #include "cpp-terminal/key.hpp"
-#include "cpp-terminal/event.hpp"
 #include "cpp-terminal/screen.hpp"
 #include "cpp-terminal/style.hpp"
 #include "cpp-terminal/terminal.hpp"
