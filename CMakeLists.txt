@@ -40,11 +40,21 @@ target_link_libraries(bfvmcpp PRIVATE
 )
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(bfvmcpp PRIVATE -O3 -march=native)
-    if (CMAKE_INTERPROCEDURAL_OPTIMIZATION)
-        target_compile_options(bfvmcpp PRIVATE -flto)
-        target_link_options(bfvmcpp PRIVATE -flto)
-    endif()
+    target_compile_options(bfvmcpp PRIVATE
+        $<$<CONFIG:Release>:-Ofast>
+        $<$<CONFIG:Release>:-march=native>
+        $<$<CONFIG:Release>:-funroll-loops>
+        $<$<CONFIG:Release>:-fomit-frame-pointer>
+        $<$<CONFIG:Release>:-fno-plt>
+        $<$<CONFIG:Release>:-fno-semantic-interposition>
+        $<$<CONFIG:Release>:-ffunction-sections>
+        $<$<CONFIG:Release>:-fdata-sections>
+    )
+    target_link_options(bfvmcpp PRIVATE
+        $<$<CONFIG:Release>:-flto>
+        $<$<CONFIG:Release>:-Wl,--gc-sections>
+    )
+    set_property(TARGET bfvmcpp PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
