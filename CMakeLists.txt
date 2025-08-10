@@ -13,9 +13,14 @@ add_subdirectory(cpp-terminal)
 set(BOOST_REGEX_STANDALONE ON CACHE BOOL "" FORCE)
 add_subdirectory(regex-develop)
 
-add_executable(bfvmcpp
+set(PROJECT_SOURCES
     main.cxx
     src/vm.cpp
+    include/vm.hpp
+)
+
+add_executable(bfvmcpp
+    ${PROJECT_SOURCES}
 )
 
 target_include_directories(bfvmcpp PRIVATE
@@ -27,3 +32,12 @@ target_link_libraries(bfvmcpp PRIVATE
     Boost::regex
     cpp-terminal::cpp-terminal
 )
+
+find_program(CLANG_FORMAT_EXE NAMES clang-format)
+if(CLANG_FORMAT_EXE)
+    add_custom_target(format
+        COMMAND ${CLANG_FORMAT_EXE} -i ${PROJECT_SOURCES}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Format source files"
+    )
+endif()

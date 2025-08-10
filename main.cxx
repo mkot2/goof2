@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "argh.hxx"
-#include "rang.hxx"
 #include "cpp-terminal/exception.hpp"
 #include "cpp-terminal/input.hpp"
 #include "cpp-terminal/iostream.hpp"
@@ -25,61 +24,64 @@
 #include "cpp-terminal/tty.hpp"
 #include "cpp-terminal/window.hpp"
 #include "include/vm.hpp"
+#include "rang.hxx"
 
 using namespace rang;
 
-void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr)
-{
+void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr) {
     size_t lastNonEmpty = 0;
     for (lastNonEmpty = cells.size() - 1; lastNonEmpty > cellptr; lastNonEmpty--)
-        if (cells[lastNonEmpty])
-            break;
+        if (cells[lastNonEmpty]) break;
     std::cout << "Memory dump:" << '\n'
-              << style::underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |" << std::endl;
+              << style::underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |"
+              << std::endl;
     for (size_t i = 0, row = 0; i <= std::max(lastNonEmpty, cellptr); i++) {
         if (i % 10 == 0) {
             if (row) std::cout << std::endl;
             std::cout << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
             row += 10;
         }
-        std::cout << (i == cellptr ? fg::green : fg::reset)
-                  << +cells[i] << fg::reset << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
+        std::cout << (i == cellptr ? fg::green : fg::reset) << +cells[i] << fg::reset
+                  << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
     }
     std::cout << style::reset << std::endl;
 }
 
-void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
-{
+void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
+                   int eof, bool dynamicSize, bool term = false) {
     int ret = bfvmcpp::execute(cells, cellptr, code, optimize, eof, dynamicSize, term);
     switch (ret) {
-    case 1:
-        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
-        break;
-    case 2:
-        std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched open bracket";
-        break;
+        case 1:
+            std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
+            break;
+        case 2:
+            std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched open bracket";
+            break;
     }
 }
 
-static std::string render(Term::Window& scr, const std::size_t& rows, const std::size_t& cols, const std::size_t& menuheight, const std::size_t& menuwidth, const std::size_t& menupos)
-{
+static std::string render(Term::Window& scr, const std::size_t& rows, const std::size_t& cols,
+                          const std::size_t& menuheight, const std::size_t& menuwidth,
+                          const std::size_t& menupos) {
     scr.clear();
     scr.print_str(0, 0, "asdf");
 
     return scr.render(1, 1, false);
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     argh::parser cmdl(argc, argv, argh::parser::PREFER_PARAM_FOR_UNREG_OPTION);
 
-    std::string filename; cmdl("i", "") >> filename;
+    std::string filename;
+    cmdl("i", "") >> filename;
     const bool optimize = !cmdl["nopt"];
     const bool sdumpMemory = cmdl["dm"];
     const bool help = cmdl["h"];
     const bool dynamicSize = cmdl["dts"];
-    int eof = 0; cmdl("eof", 0) >> eof;
-    int ts = 0; cmdl("ts", 30000) >> ts;
+    int eof = 0;
+    cmdl("eof", 0) >> eof;
+    int ts = 0;
+    cmdl("ts", 30000) >> ts;
 
     size_t cellptr = 0;
     std::vector<uint8_t> cells;
@@ -97,53 +99,63 @@ int main(int argc, char* argv[])
             std::cout << fg::red << "ERROR:" << fg::reset << " File could not be read";
         }
     } else {
-        Term::terminal.setOptions(Term::Option::ClearScreen, Term::Option::NoSignalKeys, Term::Option::Raw);
+        Term::terminal.setOptions(Term::Option::ClearScreen, Term::Option::NoSignalKeys,
+                                  Term::Option::Raw);
         Term::Screen term_size = Term::screen_size();
-        std::size_t  pos{5};
-        std::size_t  h{10};
-        std::size_t  w{10};
-        bool         on = true;
+        std::size_t pos{5};
+        std::size_t h{10};
+        std::size_t w{10};
+        bool on = true;
         Term::Window scr(term_size);
-        bool         need_to_render{true};
-        while(on)
-        {
-        if(need_to_render)
-        {
-            Term::cout << ::render(scr, term_size.rows(), term_size.columns(), h, w, pos) << std::flush;
-            need_to_render = false;
-        }
-        Term::Key key = Term::read_event();
-        switch(key)
-        {
-            case Term::Key::ArrowLeft:
-            if(w > 10) { --w; }
-            need_to_render = true;
-            break;
-            case Term::Key::ArrowRight:
-            if(w < (term_size.columns() - 5)) { ++w; }
-            need_to_render = true;
-            break;
-            case Term::Key::ArrowUp:
-            if(pos > 1) { --pos; }
-            need_to_render = true;
-            break;
-            case Term::Key::ArrowDown:
-            if(pos < h) { ++pos; }
-            need_to_render = true;
-            break;
-            case Term::Key::Home:
-            pos            = 1;
-            need_to_render = true;
-            break;
-            case Term::Key::End:
-            pos            = h;
-            need_to_render = true;
-            break;
-            case Term::Key::q:
-            case Term::Key::Esc:
-            case Term::Key::Ctrl_C: on = false; break;
-            default: break;
-        }
+        bool need_to_render{true};
+        while (on) {
+            if (need_to_render) {
+                Term::cout << ::render(scr, term_size.rows(), term_size.columns(), h, w, pos)
+                           << std::flush;
+                need_to_render = false;
+            }
+            Term::Key key = Term::read_event();
+            switch (key) {
+                case Term::Key::ArrowLeft:
+                    if (w > 10) {
+                        --w;
+                    }
+                    need_to_render = true;
+                    break;
+                case Term::Key::ArrowRight:
+                    if (w < (term_size.columns() - 5)) {
+                        ++w;
+                    }
+                    need_to_render = true;
+                    break;
+                case Term::Key::ArrowUp:
+                    if (pos > 1) {
+                        --pos;
+                    }
+                    need_to_render = true;
+                    break;
+                case Term::Key::ArrowDown:
+                    if (pos < h) {
+                        ++pos;
+                    }
+                    need_to_render = true;
+                    break;
+                case Term::Key::Home:
+                    pos = 1;
+                    need_to_render = true;
+                    break;
+                case Term::Key::End:
+                    pos = h;
+                    need_to_render = true;
+                    break;
+                case Term::Key::q:
+                case Term::Key::Esc:
+                case Term::Key::Ctrl_C:
+                    on = false;
+                    break;
+                default:
+                    break;
+            }
         }
         std::cout << R"(   _____  ____   ____  ______ )" << '\n'
                   << R"(  / ____|/ __ \ / __ \|  ____|)" << '\n'
@@ -161,14 +173,17 @@ int main(int argc, char* argv[])
             std::cin >> repl;
             std::getchar();
 
-            //TODO: Add a visualiser?
+            // TODO: Add a visualiser?
             if (repl.starts_with("help")) {
                 std::cout << style::underline << "General commands:" << style::reset << '\n'
-                    << fg::cyan << "help" << fg::reset << " - Displays this list" << '\n'
-                    << fg::cyan << "exit" << fg::reset << "/" << fg::cyan << "quit" << fg::reset << " - Exits Goof" << '\n'
-                    << style::underline << "Memory commands:" << style::reset << '\n'
-                    << fg::cyan << "clear" << fg::reset << " - Clears memory cells" << '\n'
-                    << fg::cyan << "dump" << fg::reset << " - Displays values of memory cells, cell highlighted in " << fg::green << "green" << fg::reset << " is the cell currently pointed to" << '\n';
+                          << fg::cyan << "help" << fg::reset << " - Displays this list" << '\n'
+                          << fg::cyan << "exit" << fg::reset << "/" << fg::cyan << "quit"
+                          << fg::reset << " - Exits Goof" << '\n'
+                          << style::underline << "Memory commands:" << style::reset << '\n'
+                          << fg::cyan << "clear" << fg::reset << " - Clears memory cells" << '\n'
+                          << fg::cyan << "dump" << fg::reset
+                          << " - Displays values of memory cells, cell highlighted in " << fg::green
+                          << "green" << fg::reset << " is the cell currently pointed to" << '\n';
             } else if (repl.starts_with("clear")) {
                 cellptr = 0;
                 cells.assign(ts, 0);
