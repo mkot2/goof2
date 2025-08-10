@@ -12,6 +12,7 @@
 #include "cpp-terminal/cursor.hpp"
 #include "cpp-terminal/input.hpp"
 #include "cpp-terminal/key.hpp"
+#include "cpp-terminal/event.hpp"
 #include "cpp-terminal/screen.hpp"
 #include "cpp-terminal/style.hpp"
 #include "cpp-terminal/terminal.hpp"
@@ -27,12 +28,11 @@ void append_lines(std::vector<std::string>& log, const std::string& text) {
 }
 
 std::string render(Term::Window& scr, const std::vector<std::string>& log, const std::string& input,
-                   size_t cellptr, uint8_t cellval) {
+                   size_t cellptr, uint8_t cellval, std::size_t log_height) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
     scr.clear();
 
-    std::size_t log_height = rows > 2 ? rows - 2 : 0;
     std::size_t start = log.size() > log_height ? log.size() - log_height : 0;
     for (std::size_t i = 0; i < log_height && (start + i) < log.size(); ++i) {
         scr.print_str(1, 1 + i, log[start + i]);
@@ -64,12 +64,21 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
                               Term::Option::Raw);
     Term::Screen term_size = Term::screen_size();
     Term::Window scr(term_size);
+    std::size_t log_height = term_size.rows() > 2 ? term_size.rows() - 2 : 0;
     std::vector<std::string> log;
     std::string input;
     bool on = true;
     while (on) {
-        Term::cout << render(scr, log, input, cellptr, cells[cellptr]) << std::flush;
-        Term::Key key = Term::read_event();
+        log_height = scr.rows() > 2 ? scr.rows() - 2 : 0;
+        Term::cout << render(scr, log, input, cellptr, cells[cellptr], log_height) << std::flush;
+        Term::Event ev = Term::read_event();
+        if (ev.type() == Term::Event::Type::Screen) {
+            term_size = ev;
+            scr = Term::Window(term_size);
+            log_height = term_size.rows() > 2 ? term_size.rows() - 2 : 0;
+            continue;
+        }
+        Term::Key key = ev;
         if (key == Term::Key::Ctrl_C || key == Term::Key::Esc) {
             on = false;
         } else if (key == Term::Key::Enter) {
