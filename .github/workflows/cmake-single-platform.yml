@@ -41,31 +41,32 @@ jobs:
 
       - name: Configure CMake (Linux)
         if: runner.os == 'Linux'
-        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}}
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}}
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
-        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}} -G "MinGW Makefiles"
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_C_COMPILER=${{env.CC}} -DCMAKE_CXX_COMPILER=${{env.CXX}} -G "MinGW Makefiles"
         shell: msys2 {0}
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
-        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+        run: cmake --build build --config ${{env.BUILD_TYPE}}
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+        run: cmake --build build --config ${{env.BUILD_TYPE}}
         shell: msys2 {0}
 
       - name: Test (Linux)
         if: runner.os == 'Linux'
-        working-directory: ${{github.workspace}}/build
+        working-directory: build
         run: ctest -C ${{env.BUILD_TYPE}}
 
       - name: Test (Windows)
         if: runner.os == 'Windows'
-        working-directory: ${{github.workspace}}/build
-        run: ctest -C ${{env.BUILD_TYPE}}
+        run: |
+          cd build
+          ctest -C ${{env.BUILD_TYPE}}
         shell: msys2 {0}
 
       - name: Upload Linux artifact
