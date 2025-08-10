@@ -304,9 +304,11 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
                 case bfvmcpp::ISA::CLASSIC:
                     code = boost::regex_replace(code, boost::basic_regex(R"([^\+\-\>\<\.\,\]\[])"),
                                                 "");
+                    break;
                 case bfvmcpp::ISA::EXTENDED_BRAINFUCK_TYPE_1:
                     code = boost::regex_replace(
                         code, boost::basic_regex(R"([^+\-<>.,\[\]@\$!\}\{~\^&\|])"), "");
+                    break;
             }
 
             code = boost::regex_replace(code, boost::basic_regex(R"([+-]{2,})"), [&](auto& what) {
