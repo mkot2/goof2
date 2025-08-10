@@ -54,7 +54,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     scr.print_str(1, rows, status);
 
     scr.set_cursor_pos(std::min(prompt.size() + 1, cols), rows - 1);
-    return scr.render(1, 1, false);
+    return scr.render(1, 1, true);
 }
 }  // namespace
 
