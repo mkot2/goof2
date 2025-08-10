@@ -10,6 +10,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -30,13 +31,19 @@
 using namespace rang;
 
 void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr) {
-    size_t lastNonEmpty = 0;
-    for (lastNonEmpty = cells.size() - 1; lastNonEmpty > cellptr; lastNonEmpty--)
-        if (cells[lastNonEmpty]) break;
+    if (cells.empty()) {
+        std::cout << "Memory dump:" << '\n' << "<empty>" << std::endl;
+        return;
+    }
+    size_t lastNonEmpty = cells.size() - 1;
+    while (lastNonEmpty > cellptr && lastNonEmpty > 0 && !cells[lastNonEmpty]) {
+        --lastNonEmpty;
+    }
     std::cout << "Memory dump:" << '\n'
               << style::underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |"
               << std::endl;
-    for (size_t i = 0, row = 0; i <= std::max(lastNonEmpty, cellptr); i++) {
+    size_t end = std::max(lastNonEmpty, std::min(cellptr, cells.size() - 1));
+    for (size_t i = 0, row = 0; i <= end; ++i) {
         if (i % 10 == 0) {
             if (row) std::cout << std::endl;
             std::cout << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
@@ -81,8 +88,14 @@ int main(int argc, char* argv[]) {
     const bool dynamicSize = cmdl["dts"];
     int eof = 0;
     cmdl("eof", 0) >> eof;
-    int ts = 0;
-    cmdl("ts", 30000) >> ts;
+    int tsArg = 0;
+    cmdl("ts", 30000) >> tsArg;
+    if (tsArg <= 0) {
+        std::cout << fg::red << "ERROR:" << fg::reset
+                  << " Tape size must be positive; using default 30000" << std::endl;
+        tsArg = 30000;
+    }
+    size_t ts = static_cast<size_t>(tsArg);
 
     size_t cellptr = 0;
     std::vector<uint8_t> cells;
