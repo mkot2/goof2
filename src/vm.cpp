@@ -13,7 +13,6 @@
 #define BOOST_REGEX_MAX_STATE_COUNT 1000000000  // Should be enough to parse anything
 #include <boost/regex.hpp>
 
-#include "rang.hxx"
 #include "simde/x86/avx2.h"
 #include "simde/x86/sse2.h"
 
@@ -232,7 +231,6 @@ static inline size_t simd_scan0_back_stride(const uint8_t* base, const uint8_t* 
     return (size_t)(p - base + 1);
 }
 
-using namespace rang;
 struct instruction {
     const void* jump;
     int32_t data;
