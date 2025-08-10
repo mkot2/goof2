@@ -1,28 +1,195 @@
 /*
     Goof - An optimizing brainfuck VM
-    Version 1.3.0
-    Now with random crashes!
+    Version 1.4.0
 
     Made by M.K.
-    2023-2024
+    Co-vibed by ChatGPT 5 Thinking :3
+    2023-2025
     Published under the CC0-1.0 license
 */
-
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <ostream>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #define BOOST_REGEX_MAX_STATE_COUNT 1000000000 // Should be enough to parse anything
 #include <boost/regex.hpp>
 #include "argh.hxx"
 #include "rang.hxx"
-#include "mmx.h"
+#include "simde/x86/sse2.h"
+#include "simde/x86/avx2.h"
+
+
+#if defined(__GNUC__) || defined(__clang__)
+#define TZCNT32(x)  __builtin_ctz((unsigned)(x))
+#define LZCNT32(x)  __builtin_clz((unsigned)(x))
+#else
+static inline unsigned TZCNT32(unsigned x){ unsigned i=0; while(((x>>i)&1u)==0u) ++i; return i; }
+static inline unsigned LZCNT32(unsigned x){ unsigned i=0; while(((x>>(31u-i))&1u)==0u) ++i; return i; }
+#endif
+
+static inline uint32_t stride_mask_32(unsigned step, unsigned phase)
+{
+    uint32_t m=0; for (unsigned i=0;i<32;i++) if(((i+phase)%step)==0) m|=(1u<<i); return m;
+}
+
+static inline uint16_t stride_mask_16(unsigned step, unsigned phase)
+{
+    uint16_t m=0; for (unsigned i=0;i<16;i++) if(((i+phase)%step)==0) m|=(uint16_t(1)<<i); return m;
+}
+
+static inline unsigned posmod(ptrdiff_t x, unsigned m)
+{
+    ptrdiff_t r = x % (ptrdiff_t)m; if (r<0) r += m; return (unsigned)r;
+}
+
+static inline size_t simd_scan0_fwd(const uint8_t* p, const uint8_t* end){
+  const uint8_t* x = p;
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+  while (((uintptr_t)x & 31u) && x < end){ if (*x==0) return (size_t)(x-p); ++x; }
+  const simde__m256i vz = simde_mm256_setzero_si256();
+  for (; x + 32 <= end; x += 32){
+    simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)x);
+    int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+    if (m){ unsigned idx = TZCNT32((unsigned)m); return (size_t)((x-p)+idx); }
+  }
+#else
+  while (((uintptr_t)x & 15u) && x < end){ if (*x==0) return (size_t)(x-p); ++x; }
+  const simde__m128i vz = simde_mm_setzero_si128();
+  for (; x + 16 <= end; x += 16){
+    simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
+    int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+    if (m){ unsigned idx = TZCNT32((unsigned)m); return (size_t)((x-p)+idx); }
+  }
+#endif
+  while (x < end){ if (*x==0) return (size_t)(x-p); ++x; }
+  return (size_t)(end - p);
+}
+
+/*** step == 1 backward scan: last zero in [base,p], return distance back ***/
+static inline size_t simd_scan0_back(const uint8_t* base, const uint8_t* p){
+  const uint8_t* x = p;
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+  while (((uintptr_t)(x-31) & 31u) && x >= base){ if (*x==0) return (size_t)(p-x); --x; }
+  const simde__m256i vz = simde_mm256_setzero_si256();
+  while (x + 1 >= base + 32){
+    const uint8_t* blk = x - 31;
+    simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
+    int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+    if (m){ unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m); return (size_t)(p - (blk + idx)); }
+    x -= 32;
+  }
+#else
+  while (((uintptr_t)(x-15) & 15u) && x >= base){ if (*x==0) return (size_t)(p-x); --x; }
+  const simde__m128i vz = simde_mm_setzero_si128();
+  while (x + 1 >= base + 16){
+    const uint8_t* blk = x - 15;
+    simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
+    int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+    if (m){ unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m) - 16u; return (size_t)(p - (blk + idx)); }
+    x -= 16;
+  }
+#endif
+  while (x >= base){ if (*x==0) return (size_t)(p-x); --x; }
+  return (size_t)(p - base + 1);
+}
+
+/*** tiny-stride forward scan: step in {2,4,8} ***/
+static inline size_t simd_scan0_fwd_stride(const uint8_t* p, const uint8_t* end,
+                                           unsigned step, unsigned phase){
+  const uint8_t* x = p;
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+  while (((uintptr_t)x & 31u) && x < end){
+    if ((phase % step)==0 && *x==0) return (size_t)(x-p);
+    ++x; if (++phase == step) phase = 0;
+  }
+  const simde__m256i vz = simde_mm256_setzero_si256();
+  for (; x + 32 <= end; x += 32){
+    simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)x);
+    int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+    m &= (int)stride_mask_32(step, phase);
+    if (m){ unsigned idx = TZCNT32((unsigned)m); return (size_t)((x-p)+idx); }
+    phase = (phase + 32) % step;
+  }
+#else
+  while (((uintptr_t)x & 15u) && x < end){
+    if ((phase % step)==0 && *x==0) return (size_t)(x-p);
+    ++x; if (++phase == step) phase = 0;
+  }
+  const simde__m128i vz = simde_mm_setzero_si128();
+  for (; x + 16 <= end; x += 16){
+    simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
+    int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+    m &= (int)stride_mask_16(step, phase);
+    if (m){ unsigned idx = TZCNT32((unsigned)m); return (size_t)((x-p)+idx); }
+    phase = (phase + 16) % step;
+  }
+#endif
+  while (x < end){
+    if ((phase % step)==0 && *x==0) return (size_t)(x-p);
+    ++x; if (++phase == step) phase = 0;
+  }
+  return (size_t)(end - p);
+}
+
+/*** tiny-stride backward scan: step in {2,4,8} ***/
+static inline size_t simd_scan0_back_stride(const uint8_t* base, const uint8_t* p,
+                                            unsigned step, unsigned phase_at_p){
+  const uint8_t* x = p;
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+  while (((uintptr_t)(x-31) & 31u) && x >= base){
+    if ((phase_at_p % step)==0 && *x==0) return (size_t)(p-x);
+    --x; phase_at_p = (phase_at_p + step - 1) % step;
+  }
+  const simde__m256i vz = simde_mm256_setzero_si256();
+  while (x + 1 >= base + 32){
+    const uint8_t* blk = x - 31;
+    unsigned lane0 = posmod((ptrdiff_t)(blk - base), step);
+    simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
+    int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+    m &= (int)stride_mask_32(step, lane0);
+    if (m){ unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m); return (size_t)(p - (blk + idx)); }
+    x -= 32;
+  }
+#else
+  while (((uintptr_t)(x-15) & 15u) && x >= base){
+    if ((phase_at_p % step)==0 && *x==0) return (size_t)(p-x);
+    --x; phase_at_p = (phase_at_p + step - 1) % step;
+  }
+  const simde__m128i vz = simde_mm_setzero_si128();
+  while (x + 1 >= base + 16){
+    const uint8_t* blk = x - 15;
+    unsigned lane0 = posmod((ptrdiff_t)(blk - base), step);
+    simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
+    int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+    m &= (int)stride_mask_16(step, lane0);
+    if (m){ unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m) - 16u; return (size_t)(p - (blk + idx)); }
+    x -= 16;
+  }
+#endif
+  while (x >= base){
+    if ((phase_at_p % step)==0 && *x==0) return (size_t)(p-x);
+    --x; phase_at_p = (phase_at_p + step - 1) % step;
+  }
+  return (size_t)(p - base + 1);
+}
 
 using namespace rang;
+
+struct instruction
+{
+    const void* jump;
+    int32_t data;
+    const int16_t auxData;
+    const int16_t offset;
+};
 
 size_t fold(std::string_view code, size_t& i, char match)
 {
@@ -57,19 +224,12 @@ void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr)
     std::cout << style::reset << std::endl;
 }
 
-int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
+template<bool Dynamic, bool Term>
+int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof)
 {
-    struct instruction
-    {
-        const void* jump;
-        const int32_t data;
-        const int16_t auxData;
-        const int16_t offset;
-    };
-
     std::vector<instruction> instructions;
     {
-        enum class insType // I wish for implicity to int :(
+        enum insType
         {
             ADD_SUB,
             SET,
@@ -87,21 +247,9 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
             END,
         };
 
-        std::map<insType, void*> jtable = {
-            {insType::ADD_SUB, &&_ADD_SUB},
-            {insType::SET, &&_SET},
-            {insType::PTR_MOV, &&_PTR_MOV},
-            {insType::JMP_ZER, &&_JMP_ZER},
-            {insType::JMP_NOT_ZER, &&_JMP_NOT_ZER},
-            {insType::PUT_CHR, &&_PUT_CHR},
-            {insType::RAD_CHR, &&_RAD_CHR},
-
-            {insType::CLR, &&_CLR},
-            {insType::MUL_CPY, &&_MUL_CPY},
-            {insType::SCN_RGT, &&_SCN_RGT},
-            {insType::SCN_LFT, &&_SCN_LFT},
-
-            {insType::END, &&_END}
+        static void* jtable[] = {
+            &&_ADD_SUB, &&_SET, &&_PTR_MOV, &&_JMP_ZER, &&_JMP_NOT_ZER,
+            &&_PUT_CHR, &&_RAD_CHR, &&_CLR, &&_MUL_CPY, &&_SCN_RGT, &&_SCN_LFT, &&_END
         };
 
         int copyloopCounter = 0;
@@ -120,7 +268,7 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
                 return processBalanced(what.str(), '>', '<');
                 });
 
-            code = boost::regex_replace(code, boost::basic_regex(R"([+-]*(?:\[[+-]+\])+\.*)"), "C");
+            code = boost::regex_replace(code, boost::basic_regex(R"([+-]*(?:\[[+-]+\])+)"), "C");
 
             code = boost::regex_replace(code, boost::basic_regex(R"(\[>+\]|\[<+\])"), [&](auto& what) {
                 const auto current = what.str();
@@ -131,8 +279,6 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
                 else
                     return "L";
                 });
-
-            code = boost::regex_replace(code, boost::basic_regex(R"(([RL]+)C|([CRL]+)\.+)"), "${1}${2}");
 
             code = boost::regex_replace(code, boost::basic_regex(R"([+\-C]+,)"), ",");
 
@@ -159,7 +305,7 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
                 }
                 });
 
-            if (!term) code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}"); // We can't really assume in term
+            if constexpr (!Term) code = boost::regex_replace(code, boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"), "S${1}"); // We can't really assume in term
         }
 
         std::vector<size_t> braceStack;
@@ -176,7 +322,7 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
             case '-':
             {               
                 const auto folded = -fold(code, i, '-');
-                instructions.push_back(instruction{ jtable[set ? insType::SET : insType::ADD_SUB], set ? 255 * (-folded / 255 + 1) : folded, 0, offset });
+                instructions.push_back(instruction{ jtable[set ? insType::SET : insType::ADD_SUB], set ? (int32_t)(uint8_t)folded : folded, 0, offset});
                 set = false;
                 break;
             }
@@ -200,7 +346,7 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
                 const int start = braceStack.back();
                 const int sizeminstart = instructions.size() - start;
                 braceStack.pop_back();
-                const_cast<int32_t&>(instructions[start].data) = sizeminstart;
+                instructions[start].data = sizeminstart;
                 instructions.push_back(instruction{ jtable[insType::JMP_NOT_ZER], sizeminstart, 0, 0 });
                 break;
             }
@@ -241,33 +387,30 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     auto cell = cells.data() + cellptr;
     auto insp = instructions.data();
     auto cellBase = cells.data();
+    unsigned long long totalExecuted = 0;
 
-    std::array<char, 1024> outBuffer = { 0 };
-    const auto bufferBegin = outBuffer.begin();
-    const auto bufferEnd = outBuffer.end();
+    std::array<char, 1024> buffer = { 0 };
 
     // Really not my fault if we die here
     goto *insp->jump;
 
-#define LOOP() insp++; goto *insp->jump
+#define LOOP() totalExecuted++; insp++; goto *insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh well
 #define EXPAND_IF_NEEDED() if (const ptrdiff_t currentCell = cell - cellBase; insp->offset > 0 && currentCell+insp->offset >= cells.size()) {cells.resize(cells.size() * 2);cellBase = cells.data();cell = &cells[currentCell];}
-// TODO: Fix
-#define EXPAND_IF_NEEDED_MUL() if (const ptrdiff_t currentCell = cell - cellBase; (insp->offset > 0 || insp->data > 0) && currentCell+insp->offset+insp->data >= cells.size()) {cells.resize(cells.size() * 2);cellBase = cells.data();cell = &cells[currentCell];}
 #define OFFCELL() *(cell+insp->offset)
 #define OFFCELLP() *(cell+insp->offset+insp->data)
     _ADD_SUB:
-    if (dynamicSize) EXPAND_IF_NEEDED()
+    if constexpr (Dynamic) EXPAND_IF_NEEDED()
     OFFCELL() += insp->data;
     LOOP();
 
     _SET:
-    if (dynamicSize) EXPAND_IF_NEEDED()
+    if constexpr (Dynamic) EXPAND_IF_NEEDED()
     OFFCELL() = insp->data;
     LOOP();
 
     _PTR_MOV:
-    if (dynamicSize) {
+    if constexpr (Dynamic) {
         if (const ptrdiff_t currentCell = cell - cellBase; insp->data > 0 && (currentCell + insp->data) >= cells.size()) {
             cells.resize(cells.size() * 2);
             cellBase = cells.data();
@@ -286,13 +429,18 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     LOOP();
 
     _PUT_CHR:
-    std::fill(bufferBegin, bufferBegin + insp->data, OFFCELL());
-    std::fill(bufferBegin + insp->data, bufferEnd, 0);
-    std::cout << outBuffer.data();
+    std::memset(buffer.data(), OFFCELL(), buffer.size());
+
+    size_t left = insp->data;
+    while (left) {
+        const size_t chunk = std::min(left, buffer.size());
+        std::cout.write(buffer.data(), chunk);
+        left -= chunk;
+    }
     LOOP();
 
     _RAD_CHR:
-    if (dynamicSize) EXPAND_IF_NEEDED()
+    if constexpr (Dynamic) EXPAND_IF_NEEDED()
     if (const int in = std::cin.get(); in == EOF) {
         switch (eof) {
         case 0:
@@ -312,53 +460,86 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
     LOOP();
 
     _CLR:
-    if (dynamicSize) EXPAND_IF_NEEDED()
+    if constexpr (Dynamic) EXPAND_IF_NEEDED()
     OFFCELL() = 0;
     LOOP();
 
     _MUL_CPY:
-    if (dynamicSize) EXPAND_IF_NEEDED()
+    if constexpr (Dynamic) EXPAND_IF_NEEDED()
     OFFCELLP() += OFFCELL() * insp->auxData;
     LOOP();
 
     _SCN_RGT:
-    if (dynamicSize) {
-        // Guarantee an empty cell
-        const auto aSize = cells.size();
-        const ptrdiff_t currentCell = cell - cellBase;
-        const auto mod1 = aSize % insp->data;
-        const auto mod2 = (aSize - currentCell) % insp->data;
-        if (cells[aSize - mod1 - 1] || cells[aSize - mod2 - 1]) { // I can't math so check them both, it works
-            cells.resize(cells.size() * 2);
-            cellBase = cells.data();
-            cell = &cells[currentCell];
+    {
+        const unsigned step = (unsigned)insp->data;
+
+        // small pre-grow to cut resize churn during long scans
+        if constexpr (Dynamic) {
+            while ((cell - cellBase) + 64 >= (ptrdiff_t)cells.size()) {
+                const ptrdiff_t rel = cell - cellBase;
+                cells.resize(cells.size() * 2);
+                cellBase = cells.data();
+                cell = cellBase + rel;
+            }
+        }
+
+        for (;;) {
+            uint8_t* const end = cells.data() + cells.size();
+            size_t off;
+            if (step == 1) {
+                off = simd_scan0_fwd(cell, end);
+            } else if (step == 2 || step == 4 || step == 8) {
+                const unsigned phase = posmod((ptrdiff_t)(cell - cellBase), step);
+                off = simd_scan0_fwd_stride(cell, end, step, phase);
+            } else {
+                // scalar fallback for arbitrary step
+                off = 0;
+                while (cell + off < end && *(cell + off) != 0) off += step;
+            }
+
+            cell += off;
+
+            if (cell < end) {
+                // found zero
+                LOOP();
+            }
+
+            if constexpr (Dynamic) {
+                // grow and continue the scan into new space
+                const ptrdiff_t rel = cell - cellBase;
+                cells.resize(cells.size() * 2);
+                cellBase = cells.data();
+                cell = cellBase + rel;
+                continue;
+            } else {
+                LOOP();
+            }
         }
     }
 
-    while(true) {
-        const simde__m64 emp = simde_mm_setzero_si64();
-        const simde__m64 cellstc = simde_mm_set_pi8(*(cell + 7 * insp->data), *(cell + 6 * insp->data), *(cell + 5 * insp->data),
-                                            *(cell + 4 * insp->data), *(cell + 3 * insp->data), *(cell + 2 * insp->data),
-                                            *(cell + 1 * insp->data), *(cell));
-        if (const auto idx = __builtin_ffsll(simde_m_to_int64(simde_mm_cmpeq_pi8(emp, cellstc))); idx) {
-            cell += idx / 8 * insp->data;
-            LOOP();
-        }
-        cell += 8 * insp->data;
-    }
-    
     _SCN_LFT:
-    // Nor will it be mine here
-    while(true) {
-        const simde__m64 emp = simde_mm_setzero_si64();
-        const simde__m64 cellstc = simde_mm_set_pi8(*(cell - 7 * insp->data), *(cell - 6 * insp->data), *(cell - 5 * insp->data),
-                                            *(cell - 4 * insp->data), *(cell - 3 * insp->data), *(cell - 2 * insp->data),
-                                            *(cell - 1 * insp->data), *(cell));
-        if (const auto idx = __builtin_ffsll(simde_m_to_int64(simde_mm_cmpeq_pi8(emp, cellstc))); idx) {
-            cell -= idx / 8 * insp->data;
+    {
+        const unsigned step = (unsigned)insp->data;
+
+        if (cell < cellBase) { LOOP(); }
+
+        if (step == 1) {
+            size_t back = simd_scan0_back(cellBase, cell);
+            cell -= back;
+            LOOP();
+        } else if (step == 2 || step == 4 || step == 8) {
+            const unsigned phase_at_p = posmod((ptrdiff_t)(cell - cellBase), step);
+            size_t back = simd_scan0_back_stride(cellBase, cell, step, phase_at_p);
+            cell -= back;
+            LOOP();
+        } else {
+            // scalar fallback for arbitrary step
+            while (cell >= cellBase && *cell != 0) {
+                if ((cell - cellBase) < (ptrdiff_t)step) break;
+                cell -= step;
+            }
             LOOP();
         }
-        cell -= 8 * insp->data;
     }
 
     _END:
@@ -368,7 +549,12 @@ int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, boo
 
 void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize, int eof, bool dynamicSize, bool term = false)
 {
-    switch (execute(cells, cellptr, code, optimize, eof, dynamicSize, term)) {
+    int ret = 0;
+    if (dynamicSize) term ? ret = execute<true, true>(cells, cellptr, code, optimize, eof)
+                          : ret = execute<true, false>(cells, cellptr, code, optimize, eof);
+    else             term ? ret = execute<false, true>(cells, cellptr, code, optimize, eof)
+                          : ret = execute<false, false>(cells, cellptr, code, optimize, eof);
+    switch (ret) {
     case 1:
         std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
         break;
@@ -411,7 +597,7 @@ int main(int argc, char* argv[])
                   << R"( | | |_ | |  | | |  | |  __|  )" << '\n'
                   << R"( | |__| | |__| | |__| | |     )" << '\n'
                   << R"(  \_____|\____/ \____/|_|     )" << '\n'
-                  << "Goof v1.3.0 - an optimizing brainfuck VM" << '\n'
+                  << "Goof v1.4.0 - an optimizing brainfuck VM" << '\n'
                   << "Type " << fg::cyan << "help" << fg::reset << " to see available commands."
                   << std::endl;
 
