@@ -49,8 +49,8 @@ void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr) {
 }
 
 void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
-                   int eof, bool dynamicSize, bool term, bfvmcpp::ISA isa) {
-    int ret = bfvmcpp::execute(cells, cellptr, code, optimize, eof, dynamicSize, term, isa);
+                   int eof, bool dynamicSize, bool term = false) {
+    int ret = bfvmcpp::execute(cells, cellptr, code, optimize, eof, dynamicSize, term);
     switch (ret) {
         case 1:
             std::cout << fg::red << "ERROR:" << fg::reset << " Unmatched close bracket";
@@ -73,11 +73,8 @@ static std::string render(Term::Window& scr, const std::size_t& rows, const std:
 int main(int argc, char* argv[]) {
     argh::parser cmdl(argc, argv, argh::parser::PREFER_PARAM_FOR_UNREG_OPTION);
 
-    std::string filename, extension;
+    std::string filename;
     cmdl("i", "") >> filename;
-    cmdl("e", "") >> extension;
-    bfvmcpp::ISA isa;
-
     const bool optimize = !cmdl["nopt"];
     const bool sdumpMemory = cmdl["dm"];
     const bool help = cmdl["h"];
@@ -97,7 +94,7 @@ int main(int argc, char* argv[]) {
         std::ifstream in(filename);
         if (std::string code; in.good()) {
             code.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-            executeExcept(cells, cellptr, code, optimize, eof, dynamicSize, false, isa);
+            executeExcept(cells, cellptr, code, optimize, eof, dynamicSize);
             if (sdumpMemory) dumpMemory(cells, cellptr);
         } else {
             std::cout << fg::red << "ERROR:" << fg::reset << " File could not be read";
@@ -196,7 +193,7 @@ int main(int argc, char* argv[]) {
             } else if (repl.starts_with("exit") || repl.starts_with("quit")) {
                 return 0;
             } else {
-                executeExcept(cells, cellptr, repl, optimize, eof, dynamicSize, true, isa);
+                executeExcept(cells, cellptr, repl, optimize, eof, dynamicSize, true);
             }
         }
     }

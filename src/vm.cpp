@@ -255,11 +255,10 @@ std::string processBalanced(std::string_view s, char no1, char no2) {
 }
 template <bool Dynamic, bool Term>
 int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
-             int eof, bfvmcpp::ISA isa) {
+             int eof) {
     std::vector<instruction> instructions;
     {
         enum insType {
-            // Classic ISA
             ADD_SUB,
             SET,
             PTR_MOV,
@@ -268,30 +267,17 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
             PUT_CHR,
             RAD_CHR,
 
-            // Optimization opcodes
             CLR,
             MUL_CPY,
             SCN_RGT,
             SCN_LFT,
 
-            // Extended Brainfuck Type I ISA
-            I01_STR,
-            I01_LOD,
-            I01_SHL,
-            I01_SHR,
-            I01_NOT,
-            I01_XOR,
-            I01_AND,
-            I01_OR,
-            I01_END,
-
-            END
+            END,
         };
 
-        static void* jtable[] = {
-            &&_ADD_SUB, &&_SET,     &&_PTR_MOV, &&_JMP_ZER, &&_JMP_NOT_ZER, &&_PUT_CHR, &&_RAD_CHR,
-            &&_CLR,     &&_MUL_CPY, &&_SCN_RGT, &&_SCN_LFT, &&_I01_STR,     &&_I01_LOD, &&_I01_SHL,
-            &&_I01_SHR, &&_I01_NOT, &&_I01_XOR, &&_I01_AND, &&_I01_OR,      &&_I01_END, &&_END};
+        static void* jtable[] = {&&_ADD_SUB,     &&_SET,     &&_PTR_MOV, &&_JMP_ZER,
+                                 &&_JMP_NOT_ZER, &&_PUT_CHR, &&_RAD_CHR, &&_CLR,
+                                 &&_MUL_CPY,     &&_SCN_RGT, &&_SCN_LFT, &&_END};
 
         int copyloopCounter = 0;
         std::vector<int> copyloopMap;
@@ -300,16 +286,7 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
         std::vector<int> scanloopMap;
 
         if (optimize) {
-            switch (isa) {
-                case bfvmcpp::ISA::CLASSIC:
-                    code = boost::regex_replace(code, boost::basic_regex(R"([^\+\-\>\<\.\,\]\[])"),
-                                                "");
-                    break;
-                case bfvmcpp::ISA::EXTENDED_BRAINFUCK_TYPE_1:
-                    code = boost::regex_replace(
-                        code, boost::basic_regex(R"([^+\-<>.,\[\]@\$!\}\{~\^&\|])"), "");
-                    break;
-            }
+            code = boost::regex_replace(code, boost::basic_regex(R"([^\+\-\>\<\.\,\]\[])"), "");
 
             code = boost::regex_replace(code, boost::basic_regex(R"([+-]{2,})"), [&](auto& what) {
                 return processBalanced(what.str(), '+', '-');
@@ -457,7 +434,7 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
 
         instructions.shrink_to_fit();
     }
-    uint8_t storage = 0;
+
     auto cell = cells.data() + cellptr;
     auto insp = instructions.data();
     auto cellBase = cells.data();
@@ -629,44 +606,19 @@ _SCN_LFT: {
     }
 }
 
-_I01_STR:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() storage = OFFCELL();
-    LOOP();
-_I01_LOD:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() OFFCELL() = storage;
-    LOOP();
-_I01_SHL:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() OFFCELL() = uint8_t(OFFCELL() << 1);
-    LOOP();
-_I01_SHR:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() OFFCELL() = uint8_t(OFFCELL() >> 1);
-    LOOP();
-_I01_NOT:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() OFFCELL() = uint8_t(~OFFCELL());
-    LOOP();
-_I01_XOR:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() OFFCELL() = uint8_t(OFFCELL() ^ storage);
-    LOOP();
-_I01_AND:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() OFFCELL() = uint8_t(OFFCELL() & storage);
-    LOOP();
-_I01_OR:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED() OFFCELL() = uint8_t(OFFCELL() | storage);
-    LOOP();
-_I01_END:
 _END:
     cellptr = cell - cellBase;
     return 0;
 }
 
 int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
-                     int eof, bool dynamicSize, bool term, bfvmcpp::ISA isa) {
+                     int eof, bool dynamicSize, bool term) {
     int ret = 0;
     if (dynamicSize)
-        term ? ret = _execute<true, true>(cells, cellptr, code, optimize, eof, isa)
-             : ret = _execute<true, false>(cells, cellptr, code, optimize, eof, isa);
+        term ? ret = _execute<true, true>(cells, cellptr, code, optimize, eof)
+             : ret = _execute<true, false>(cells, cellptr, code, optimize, eof);
     else
-        term ? ret = _execute<false, true>(cells, cellptr, code, optimize, eof, isa)
-             : ret = _execute<false, false>(cells, cellptr, code, optimize, eof, isa);
+        term ? ret = _execute<false, true>(cells, cellptr, code, optimize, eof)
+             : ret = _execute<false, false>(cells, cellptr, code, optimize, eof);
     return ret;
 }
