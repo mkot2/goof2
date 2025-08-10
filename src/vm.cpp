@@ -353,26 +353,57 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
         int16_t offset = 0;
         bool set = false;
         instructions.reserve(code.length());
+
+        auto emit = [&](instruction inst) {
+            if (!instructions.empty() && instructions.back().offset == inst.offset) {
+                const void *addSub = jtable[insType::ADD_SUB];
+                const void *setIns = jtable[insType::SET];
+                const void *clrIns = jtable[insType::CLR];
+                auto &last = instructions.back();
+                bool lastIsWrite = last.jump == addSub || last.jump == setIns || last.jump == clrIns;
+                bool newIsWrite = inst.jump == addSub || inst.jump == setIns || inst.jump == clrIns;
+                if (lastIsWrite && newIsWrite) {
+                    if (inst.jump == addSub) {
+                        if (last.jump == addSub) {
+                            last.data += inst.data;
+                            return;
+                        } else if (last.jump == setIns) {
+                            last.data = static_cast<uint8_t>(last.data + inst.data);
+                            return;
+                        } else if (last.jump == clrIns) {
+                            instructions.pop_back();
+                            instructions.push_back(instruction{setIns, static_cast<int32_t>(static_cast<uint8_t>(inst.data)), 0, inst.offset});
+                            return;
+                        }
+                    } else {
+                        instructions.pop_back();
+                        instructions.push_back(inst);
+                        return;
+                    }
+                }
+            }
+            instructions.push_back(inst);
+        };
+
 #define MOVEOFFSET()                                                                 \
     if (offset) [[likely]] {                                                         \
-        instructions.push_back(instruction{jtable[insType::PTR_MOV], offset, 0, 0}); \
+        emit(instruction{jtable[insType::PTR_MOV], offset, 0, 0});                   \
         offset = 0;                                                                  \
     }
+
         for (size_t i = 0; i < code.length(); i++) {
             switch (code[i]) {
                 case '+':
-                    instructions.push_back(
-                        instruction{jtable[set ? insType::SET : insType::ADD_SUB],
-                                    fold(code, i, '+'), 0, offset});
+                    emit(instruction{jtable[set ? insType::SET : insType::ADD_SUB],
+                                     fold(code, i, '+'), 0, offset});
                     set = false;
                     break;
                 case '-': {
                     const int32_t folded = -fold(code, i, '-');
-                    instructions.push_back(
-                        instruction{jtable[set ? insType::SET : insType::ADD_SUB],
-                                    set ? static_cast<int32_t>(static_cast<uint8_t>(folded))
-                                        : folded,
-                                    0, offset});
+                    emit(instruction{jtable[set ? insType::SET : insType::ADD_SUB],
+                                     set ? static_cast<int32_t>(static_cast<uint8_t>(folded))
+                                         : folded,
+                                     0, offset});
                     set = false;
                     break;
                 }
@@ -385,7 +416,7 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
                 case '[':
                     MOVEOFFSET();
                     braceStack.push_back(instructions.size());
-                    instructions.push_back(instruction{jtable[insType::JMP_ZER], 0, 0, 0});
+                    emit(instruction{jtable[insType::JMP_ZER], 0, 0, 0});
                     break;
                 case ']': {
                     if (!braceStack.size()) return 1;
@@ -395,34 +426,29 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
                     const int sizeminstart = instructions.size() - start;
                     braceStack.pop_back();
                     instructions[start].data = sizeminstart;
-                    instructions.push_back(
-                        instruction{jtable[insType::JMP_NOT_ZER], sizeminstart, 0, 0});
+                    emit(instruction{jtable[insType::JMP_NOT_ZER], sizeminstart, 0, 0});
                     break;
                 }
                 case '.':
-                    instructions.push_back(
-                        instruction{jtable[insType::PUT_CHR], fold(code, i, '.'), 0, offset});
+                    emit(instruction{jtable[insType::PUT_CHR], fold(code, i, '.'), 0, offset});
                     break;
                 case ',':
-                    instructions.push_back(instruction{jtable[insType::RAD_CHR], 0, 0, offset});
+                    emit(instruction{jtable[insType::RAD_CHR], 0, 0, offset});
                     break;
                 case 'C':
-                    instructions.push_back(instruction{jtable[insType::CLR], 0, 0, offset});
+                    emit(instruction{jtable[insType::CLR], 0, 0, offset});
                     break;
                 case 'P':
-                    instructions.push_back(
-                        instruction{jtable[insType::MUL_CPY], copyloopMap[copyloopCounter++],
-                                    static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
+                    emit(instruction{jtable[insType::MUL_CPY], copyloopMap[copyloopCounter++],
+                                     static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
                     break;
                 case 'R':
                     MOVEOFFSET();
-                    instructions.push_back(instruction{jtable[insType::SCN_RGT],
-                                                       scanloopMap[scanloopCounter++], 0, 0});
+                    emit(instruction{jtable[insType::SCN_RGT], scanloopMap[scanloopCounter++], 0, 0});
                     break;
                 case 'L':
                     MOVEOFFSET();
-                    instructions.push_back(instruction{jtable[insType::SCN_LFT],
-                                                       scanloopMap[scanloopCounter++], 0, 0});
+                    emit(instruction{jtable[insType::SCN_LFT], scanloopMap[scanloopCounter++], 0, 0});
                     break;
                 case 'S':
                     set = true;
@@ -430,7 +456,7 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
             }
         }
         MOVEOFFSET()
-        instructions.push_back(instruction{jtable[insType::END], 0, 0, 0});
+        emit(instruction{jtable[insType::END], 0, 0, 0});
 
         if (!braceStack.empty()) return 2;
 
