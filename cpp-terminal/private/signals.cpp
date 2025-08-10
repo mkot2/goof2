@@ -68,7 +68,8 @@ Term::Private::Signals::Signals(const Terminal& terminal) noexcept
     //if(std::find(ignore.begin(),ignore.end(),signal)==ignore.end())
     //{
     sighandler_t old = std::signal(signal, SIG_DFL);
-    //sighandler_t dumb=std::signal(signal, old);
+    // Restore the previous handler to avoid altering global state
+    std::signal(signal, old);
     m_handlers.push_back(old);
     //}
     //else
