@@ -66,6 +66,8 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
     Term::Window scr(term_size);
     std::vector<std::string> log;
     std::string input;
+    std::vector<std::string> history;
+    std::size_t history_index = 0;
     bool on = true;
     while (on) {
         Term::cout << render(scr, log, input, cellptr, cells[cellptr]) << std::flush;
@@ -73,6 +75,10 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
         if (key == Term::Key::Ctrl_C || key == Term::Key::Esc) {
             on = false;
         } else if (key == Term::Key::Enter) {
+            if (!input.empty()) {
+                history.push_back(input);
+                history_index = history.size();
+            }
             if (input == "exit" || input == "quit") {
                 on = false;
             } else if (input == "clear") {
@@ -93,6 +99,19 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
                 append_lines(log, oss.str());
             }
             input.clear();
+        } else if (key == Term::Key::ArrowUp) {
+            if (!history.empty() && history_index > 0) {
+                --history_index;
+                input = history[history_index];
+            }
+        } else if (key == Term::Key::ArrowDown) {
+            if (history_index + 1 < history.size()) {
+                ++history_index;
+                input = history[history_index];
+            } else if (history_index + 1 == history.size()) {
+                history_index = history.size();
+                input.clear();
+            }
         } else if (key == Term::Key::Backspace) {
             if (!input.empty()) input.pop_back();
         } else if (key.isprint()) {
