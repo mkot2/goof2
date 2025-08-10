@@ -253,7 +253,7 @@ std::string processBalanced(std::string_view s, char no1, char no2) {
     const auto total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
-template <bool Dynamic, bool Term>
+template <bool Dynamic, bool Term, bool Paged>
 int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
              int eof) {
     std::vector<instruction> instructions;
@@ -470,6 +470,19 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
 
     std::array<char, 1024> buffer = {0};
 
+    constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
+    auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
+        size_t needed = static_cast<size_t>(neededIndex + 1);
+        if constexpr (Paged) {
+            size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+            if (newSize > cells.size()) cells.resize(newSize);
+        } else {
+            while (cells.size() < needed) cells.resize(cells.size() * 2);
+        }
+        cellBase = cells.data();
+        cell = cellBase + currentCell;
+    };
+
     // Really not my fault if we die here
     goto * insp->jump;
 
@@ -479,14 +492,13 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
     goto * insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
-#define EXPAND_IF_NEEDED()                                                        \
-    if (insp->offset > 0) {                                                       \
-        const ptrdiff_t currentCell = cell - cellBase;                            \
-        if (currentCell + insp->offset >= static_cast<ptrdiff_t>(cells.size())) { \
-            cells.resize(cells.size() * 2);                                       \
-            cellBase = cells.data();                                              \
-            cell = &cells[currentCell];                                           \
-        }                                                                         \
+#define EXPAND_IF_NEEDED()                                                       \
+    if (insp->offset > 0) {                                                      \
+        const ptrdiff_t currentCell = cell - cellBase;                           \
+        const ptrdiff_t neededIndex = currentCell + insp->offset;                \
+        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) {               \
+            ensure(currentCell, neededIndex);                                    \
+        }                                                                        \
     }
 #define OFFCELL() *(cell + insp->offset)
 #define OFFCELLP() *(cell + insp->offset + insp->data)
@@ -503,11 +515,11 @@ _SET:
 _PTR_MOV:
     if constexpr (Dynamic) {
         const ptrdiff_t currentCell = cell - cellBase;
-        if (insp->data > 0 &&
-            currentCell + insp->data >= static_cast<ptrdiff_t>(cells.size())) {
-            cells.resize(cells.size() * 2);
-            cellBase = cells.data();
-            cell = &cells[currentCell];
+        if (insp->data > 0) {
+            const ptrdiff_t neededIndex = currentCell + insp->data;
+            if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) {
+                ensure(currentCell, neededIndex);
+            }
         }
     }
     cell += insp->data;
@@ -571,9 +583,7 @@ _SCN_RGT: {
     if constexpr (Dynamic) {
         while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size())) {
             const ptrdiff_t rel = cell - cellBase;
-            cells.resize(cells.size() * 2);
-            cellBase = cells.data();
-            cell = cellBase + rel;
+            ensure(rel, rel + 64);
         }
     }
 
@@ -601,9 +611,7 @@ _SCN_RGT: {
         if constexpr (Dynamic) {
             // grow and continue the scan into new space
             const ptrdiff_t rel = cell - cellBase;
-            cells.resize(cells.size() * 2);
-            cellBase = cells.data();
-            cell = cellBase + rel;
+            ensure(rel, rel);
             continue;
         } else {
             LOOP();
@@ -645,11 +653,17 @@ _END:
 int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
                      int eof, bool dynamicSize, bool term) {
     int ret = 0;
-    if (dynamicSize)
-        term ? ret = _execute<true, true>(cells, cellptr, code, optimize, eof)
-             : ret = _execute<true, false>(cells, cellptr, code, optimize, eof);
-    else
-        term ? ret = _execute<false, true>(cells, cellptr, code, optimize, eof)
-             : ret = _execute<false, false>(cells, cellptr, code, optimize, eof);
+    const bool paged = dynamicSize && cells.size() > (1u << 16);  // heuristic switch
+    if (dynamicSize) {
+        if (paged)
+            term ? ret = _execute<true, true, true>(cells, cellptr, code, optimize, eof)
+                 : ret = _execute<true, false, true>(cells, cellptr, code, optimize, eof);
+        else
+            term ? ret = _execute<true, true, false>(cells, cellptr, code, optimize, eof)
+                 : ret = _execute<true, false, false>(cells, cellptr, code, optimize, eof);
+    } else {
+        term ? ret = _execute<false, true, false>(cells, cellptr, code, optimize, eof)
+             : ret = _execute<false, false, false>(cells, cellptr, code, optimize, eof);
+    }
     return ret;
 }
