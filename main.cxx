@@ -5,8 +5,9 @@
     Made by M.K.
     Co-vibed by ChatGPT 5 Thinking :3
     2023-2025
-    Published under the CC0-1.0 license
+    Published under the GNU AGPL-3.0-or-later license
 */
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
