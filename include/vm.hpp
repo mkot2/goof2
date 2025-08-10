@@ -9,6 +9,14 @@
 #include <vector>
 
 namespace bfvmcpp {
+/// @brief All available extension modes, or in other words which brainfuck language variation to
+/// run code as.
+enum class ISA { CLASSIC, EXTENDED_BRAINFUCK_TYPE_1 };
+enum class VMRetStatus { SUCCESS, UNMATCHED_OPEN_BRACKET, UNMATCHED_CLOSE_BRACKET };
+/// @brief
+struct VMRet {
+    VMRetStatus status;
+};
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
 /// @param cells Vector of byte cells. Other sizes aren't, and probably won't be supported, because
 /// of SIMD.
@@ -24,8 +32,9 @@ namespace bfvmcpp {
 /// currently not handled.
 /// @param term A few tweaks necessary to make it operable multiple times on the same cells. Check
 /// BFVMCPP_DEFAULT_SAVE_STATE.
-/// @return
+/// @return Check VMRet.
 int execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code,
             bool optimize = BFVMCPP_OPTIMIZE, int eof = BFVMCPP_DEFAULT_EOF_BEHAVIOUR,
-            bool dynamicSize = BFVMCPP_DYNAMIC_CELLS_SIZE, bool term = BFVMCPP_DEFAULT_SAVE_STATE);
+            bool dynamicSize = BFVMCPP_DYNAMIC_CELLS_SIZE, bool term = BFVMCPP_DEFAULT_SAVE_STATE,
+            bfvmcpp::ISA isa = bfvmcpp::ISA::CLASSIC);
 }  // namespace bfvmcpp
