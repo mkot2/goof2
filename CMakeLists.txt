@@ -39,6 +39,11 @@ target_link_libraries(bfvmcpp PRIVATE
     Warnings
 )
 
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(bfvmcpp PRIVATE -O3 -march=native -flto)
+    target_link_options(bfvmcpp PRIVATE -flto)
+endif()
+
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
     add_custom_target(format
