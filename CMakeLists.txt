@@ -22,6 +22,8 @@ set(PROJECT_SOURCES
     main.cxx
     src/vm.cpp
     include/vm.hpp
+    src/repl.cpp
+    include/repl.hpp
 )
 
 add_executable(bfvmcpp
