@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "repl.hpp"
 
+#include <algorithm>
 #include <sstream>
 
 #include "cpp-terminal/color.hpp"
@@ -69,13 +70,13 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
     std::string input;
     bool on = true;
     while (on) {
-        log_height = scr.rows() > 2 ? scr.rows() - 2 : 0;
         Term::cout << render(scr, log, input, cellptr, cells[cellptr], log_height) << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
             term_size = ev;
             scr = Term::Window(term_size);
             log_height = term_size.rows() > 2 ? term_size.rows() - 2 : 0;
+            Term::cout << render(scr, log, input, cellptr, cells[cellptr], log_height) << std::flush;
             continue;
         }
         Term::Key key = ev;
