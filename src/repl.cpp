@@ -83,7 +83,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     }
 
     std::string in = input;
-    std::size_t max_input = cols > 2 ? cols - 2 : 0;
+    std::size_t max_input = cols > 3 ? cols - 3 : 0;
     if (in.size() > max_input) {
         in = in.substr(in.size() - max_input);
     }
@@ -124,6 +124,10 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
             term_size = ev;
             scr = Term::Window(term_size);
             log_height = term_size.rows() > 2 ? term_size.rows() - 2 : 0;
+            std::size_t max_input = term_size.columns() > 3 ? term_size.columns() - 3 : 0;
+            if (input.size() > max_input) {
+                input = input.substr(input.size() - max_input);
+            }
             Term::cout << render(scr, log, input, cellptr, cells[cellptr], log_height) << std::flush;
             continue;
         }
@@ -170,7 +174,10 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
         } else if (key == Term::Key::Backspace) {
             if (!input.empty()) input.pop_back();
         } else if (key.isprint()) {
-            input.push_back(static_cast<char>(key.value));
+            std::size_t max_input = scr.columns() > 3 ? scr.columns() - 3 : 0;
+            if (input.size() < max_input) {
+                input.push_back(static_cast<char>(key.value));
+            }
         }
     }
     Term::terminal.setOptions(Term::Option::Cooked, Term::Option::SignalKeys, Term::Option::Cursor);
