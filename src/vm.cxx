@@ -375,7 +375,6 @@ struct instruction {
     int32_t data;
     int16_t auxData;
     int16_t offset;
-    uint8_t op;
 };
 
 int32_t fold(std::string_view code, size_t& i, char match) {
@@ -498,57 +497,69 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         int16_t offset = 0;
         bool set = false;
         instructions.reserve(code.length());
+        std::vector<uint8_t> ops;
+        ops.reserve(code.length());
 
-        auto emit = [&](instruction inst) {
+        auto emit = [&](insType op, instruction inst) {
             if (!instructions.empty() && instructions.back().offset == inst.offset) {
                 auto& last = instructions.back();
-                bool lastIsWrite = last.op == insType::ADD_SUB || last.op == insType::SET ||
-                                   last.op == insType::CLR;
-                bool newIsWrite = inst.op == insType::ADD_SUB || inst.op == insType::SET ||
-                                  inst.op == insType::CLR;
+                insType lastOp = static_cast<insType>(ops.back());
+                bool lastIsWrite = lastOp == insType::ADD_SUB || lastOp == insType::SET ||
+                                   lastOp == insType::CLR;
+                bool newIsWrite = op == insType::ADD_SUB || op == insType::SET ||
+                                  op == insType::CLR;
                 if (lastIsWrite && newIsWrite) {
-                    if (inst.op == insType::ADD_SUB) {
-                        if (last.op == insType::ADD_SUB) {
+                    if (op == insType::ADD_SUB) {
+                        if (lastOp == insType::ADD_SUB) {
                             last.data += inst.data;
                             return;
-                        } else if (last.op == insType::SET) {
+                        } else if (lastOp == insType::SET) {
                             last.data = static_cast<CellT>(last.data + inst.data);
                             return;
-                        } else if (last.op == insType::CLR) {
+                        } else if (lastOp == insType::CLR) {
                             instructions.pop_back();
-                            instructions.push_back(instruction{
-                                nullptr, static_cast<int32_t>(static_cast<CellT>(inst.data)), 0,
-                                inst.offset, static_cast<uint8_t>(insType::SET)});
+                            ops.pop_back();
+                            instructions.push_back(instruction{nullptr,
+                                                              static_cast<int32_t>(
+                                                                  static_cast<CellT>(inst.data)),
+                                                              0, inst.offset});
+                            ops.push_back(static_cast<uint8_t>(insType::SET));
                             return;
                         }
                     } else {
                         instructions.pop_back();
+                        ops.pop_back();
                         instructions.push_back(inst);
+                        ops.push_back(static_cast<uint8_t>(op));
                         return;
                     }
                 }
             }
             instructions.push_back(inst);
+            ops.push_back(static_cast<uint8_t>(op));
         };
 
-#define MOVEOFFSET()                                                                      \
-    if (offset) [[likely]] {                                                              \
-        emit(instruction{nullptr, offset, 0, 0, static_cast<uint8_t>(insType::PTR_MOV)}); \
-        offset = 0;                                                                       \
+#define MOVEOFFSET()                                                          \
+    if (offset) [[likely]] {                                                  \
+        emit(insType::PTR_MOV, instruction{nullptr, offset, 0, 0}); \
+        offset = 0;                                                           \
     }
 
         for (size_t i = 0; i < code.length(); i++) {
             switch (code[i]) {
-                case '+':
-                    emit(instruction{nullptr, fold(code, i, '+'), 0, offset,
-                                     static_cast<uint8_t>(set ? insType::SET : insType::ADD_SUB)});
+                case '+': {
+                    const insType op = set ? insType::SET : insType::ADD_SUB;
+                    emit(op, instruction{nullptr, fold(code, i, '+'), 0, offset});
                     set = false;
                     break;
+                }
                 case '-': {
                     const int32_t folded = -fold(code, i, '-');
-                    emit(instruction{
-                        nullptr, set ? static_cast<int32_t>(static_cast<CellT>(folded)) : folded, 0,
-                        offset, static_cast<uint8_t>(set ? insType::SET : insType::ADD_SUB)});
+                    const insType op = set ? insType::SET : insType::ADD_SUB;
+                    emit(op, instruction{nullptr,
+                                         set ? static_cast<int32_t>(static_cast<CellT>(folded))
+                                             : folded,
+                                         0, offset});
                     set = false;
                     break;
                 }
@@ -561,7 +572,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 case '[':
                     MOVEOFFSET();
                     braceStack.push_back(instructions.size());
-                    emit(instruction{nullptr, 0, 0, 0, static_cast<uint8_t>(insType::JMP_ZER)});
+                    emit(insType::JMP_ZER, instruction{nullptr, 0, 0, 0});
                     break;
                 case ']': {
                     if (!braceStack.size()) return 1;
@@ -571,49 +582,48 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     const int sizeminstart = instructions.size() - start;
                     braceStack.pop_back();
                     instructions[start].data = sizeminstart;
-                    emit(instruction{nullptr, sizeminstart, 0, 0,
-                                     static_cast<uint8_t>(insType::JMP_NOT_ZER)});
+                    emit(insType::JMP_NOT_ZER,
+                         instruction{nullptr, sizeminstart, 0, 0});
                     break;
                 }
                 case '.':
-                    emit(instruction{nullptr, fold(code, i, '.'), 0, offset,
-                                     static_cast<uint8_t>(insType::PUT_CHR)});
+                    emit(insType::PUT_CHR,
+                         instruction{nullptr, fold(code, i, '.'), 0, offset});
                     break;
                 case ',':
-                    emit(
-                        instruction{nullptr, 0, 0, offset, static_cast<uint8_t>(insType::RAD_CHR)});
+                    emit(insType::RAD_CHR, instruction{nullptr, 0, 0, offset});
                     break;
                 case 'C':
-                    emit(instruction{nullptr, 0, 0, offset, static_cast<uint8_t>(insType::CLR)});
+                    emit(insType::CLR, instruction{nullptr, 0, 0, offset});
                     break;
                 case 'P':
-                    emit(instruction{nullptr, copyloopMap[copyloopCounter++],
-                                     static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset,
-                                     static_cast<uint8_t>(insType::MUL_CPY)});
+                    emit(insType::MUL_CPY,
+                         instruction{nullptr, copyloopMap[copyloopCounter++],
+                                     static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
                     break;
                 case 'R':
                     MOVEOFFSET();
-                    emit(instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0,
-                                     static_cast<uint8_t>(insType::SCN_RGT)});
+                    emit(insType::SCN_RGT,
+                         instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0});
                     break;
                 case 'L':
                     MOVEOFFSET();
-                    emit(instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0,
-                                     static_cast<uint8_t>(insType::SCN_LFT)});
+                    emit(insType::SCN_LFT,
+                         instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0});
                     break;
                 case 'S':
                     set = true;
                     break;
             }
         }
-        MOVEOFFSET()
-        emit(instruction{nullptr, 0, 0, 0, static_cast<uint8_t>(insType::END)});
+        MOVEOFFSET();
+        emit(insType::END, instruction{nullptr, 0, 0, 0});
 
         if (!braceStack.empty()) return 2;
 
         instructions.shrink_to_fit();
-        for (auto& inst : instructions) {
-            inst.jump = jtable[inst.op];
+        for (size_t i = 0; i < instructions.size(); ++i) {
+            instructions[i].jump = jtable[ops[i]];
         }
     }
 
