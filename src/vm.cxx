@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 #if defined(_WIN32)
@@ -401,7 +402,7 @@ static void regex_replace_inplace(std::string& str, const std::regex& re, Callba
 
 enum class MemoryModel { Contiguous, Paged, Fibonacci, OSBacked };
 
-template <typename CellT, bool Dynamic, bool Term>
+template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model) {
 #if defined(__GNUC__) || defined(__clang__)
@@ -630,30 +631,39 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     }
 
     auto insp = instructions.data();
+    [[maybe_unused]] std::unordered_map<size_t, CellT> sparseTape;
+    [[maybe_unused]] size_t sparseIndex = cellPtr;
     CellT* cellBase = cells.data();
     CellT* cell = cellBase + cellPtr;
     size_t osSize = cells.size();
-#if GOOF2_HAS_OS_VM
-    if (model == MemoryModel::OSBacked) {
-        void* ptr = goof2::os_alloc(osSize * sizeof(CellT));
-#ifdef _WIN32
-        if (ptr)
-#else
-        if (ptr != MAP_FAILED)
-#endif
-        {
-            CellT* osMem = static_cast<CellT*>(ptr);
-            std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
-            cellBase = osMem;
-            cell = cellBase + cellPtr;
-        } else {
-            std::cerr
-                << "warning: OS-backed allocation failed, falling back to contiguous memory model"
-                << std::endl;
-            model = MemoryModel::Contiguous;
+    if constexpr (Sparse) {
+        for (size_t i = 0; i < cells.size(); ++i) {
+            if (cells[i] != 0) sparseTape[i] = cells[i];
         }
     }
+    if constexpr (!Sparse) {
+#if GOOF2_HAS_OS_VM
+        if (model == MemoryModel::OSBacked) {
+            void* ptr = goof2::os_alloc(osSize * sizeof(CellT));
+#ifdef _WIN32
+            if (ptr)
+#else
+            if (ptr != MAP_FAILED)
 #endif
+            {
+                CellT* osMem = static_cast<CellT*>(ptr);
+                std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
+                cellBase = osMem;
+                cell = cellBase + cellPtr;
+            } else {
+                std::cerr << "warning: OS-backed allocation failed, falling back to contiguous "
+                             "memory model"
+                          << std::endl;
+                model = MemoryModel::Contiguous;
+            }
+        }
+#endif
+    }
 
     constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
     size_t fibA = cells.size(), fibB = cells.size();
@@ -666,6 +676,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         return MemoryModel::Contiguous;
     };
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
+        if constexpr (Sparse) return;  // sparse tape allocates on demand
         size_t needed = static_cast<size_t>(neededIndex + 1);
         MemoryModel target = chooseModel(needed);
         if (target != model) {
@@ -769,6 +780,13 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         cell = cellBase + currentCell;
     };
 
+    auto cellRef = [&](ptrdiff_t off) -> CellT& {
+        if constexpr (Sparse)
+            return sparseTape[sparseIndex + off];
+        else
+            return *(cell + off);
+    };
+
     // Really not my fault if we die here
     goto * insp->jump;
 
@@ -777,17 +795,20 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     goto * insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
-#define EXPAND_IF_NEEDED()                                                           \
-    if (insp->offset > 0) {                                                          \
-        const ptrdiff_t currentCell = cell - cellBase;                               \
-        const ptrdiff_t neededIndex = currentCell + insp->offset;                    \
-        size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size()); \
-        if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {                      \
-            ensure(currentCell, neededIndex);                                        \
-        }                                                                            \
+#define EXPAND_IF_NEEDED()                                                               \
+    if constexpr (!Sparse) {                                                             \
+        if (insp->offset > 0) {                                                          \
+            const ptrdiff_t currentCell = cell - cellBase;                               \
+            const ptrdiff_t neededIndex = currentCell + insp->offset;                    \
+            size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size()); \
+            if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {                      \
+                ensure(currentCell, neededIndex);                                        \
+            }                                                                            \
+        }                                                                                \
     }
-#define OFFCELL() *(cell + insp->offset)
-#define OFFCELLP() *(cell + insp->offset + insp->data)
+
+#define OFFCELL() cellRef(insp->offset)
+#define OFFCELLP() cellRef(insp->offset + insp->data)
 _ADD_SUB:
     if constexpr (Dynamic) EXPAND_IF_NEEDED()
     OFFCELL() += insp->data;
@@ -799,33 +820,44 @@ _SET:
     LOOP();
 
 _PTR_MOV: {
-    const ptrdiff_t currentCell = cell - cellBase;
-    const ptrdiff_t newIndex = currentCell + insp->data;
-    if (newIndex < 0) {
-        cellPtr = currentCell;
-        std::cerr << "cell pointer moved before start" << std::endl;
-        return -1;
-    }
-    if (newIndex >= static_cast<ptrdiff_t>(cells.size())) {
-        if constexpr (Dynamic) {
-            ensure(currentCell, newIndex);
-        } else {
-            cellPtr = currentCell;
-            std::cerr << "cell pointer moved beyond end" << std::endl;
+    if constexpr (Sparse) {
+        const ptrdiff_t newIndex = static_cast<ptrdiff_t>(sparseIndex) + insp->data;
+        if (newIndex < 0) {
+            cellPtr = sparseIndex;
+            std::cerr << "cell pointer moved before start" << std::endl;
             return -1;
         }
+        sparseIndex = static_cast<size_t>(newIndex);
+        LOOP();
+    } else {
+        const ptrdiff_t currentCell = cell - cellBase;
+        const ptrdiff_t newIndex = currentCell + insp->data;
+        if (newIndex < 0) {
+            cellPtr = currentCell;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
+        }
+        if (newIndex >= static_cast<ptrdiff_t>(cells.size())) {
+            if constexpr (Dynamic) {
+                ensure(currentCell, newIndex);
+            } else {
+                cellPtr = currentCell;
+                std::cerr << "cell pointer moved beyond end" << std::endl;
+                return -1;
+            }
+        }
+        cell = cellBase + newIndex;
+        LOOP();
     }
-    cell = cellBase + newIndex;
-    LOOP();
 }
 
 _JMP_ZER:
-    if (!*cell) [[unlikely]]
+    if (!cellRef(0)) [[unlikely]]
         insp += insp->data;
     LOOP();
 
 _JMP_NOT_ZER:
-    if (*cell) [[likely]]
+    if (cellRef(0)) [[likely]]
         insp -= insp->data;
     LOOP();
 
@@ -873,6 +905,10 @@ _CLR:
     LOOP();
 
 _MUL_CPY:
+    if constexpr (Sparse) {
+        OFFCELLP() += OFFCELL() * insp->auxData;
+        LOOP();
+    }
     if constexpr (Dynamic) {
         const ptrdiff_t currentCell = cell - cellBase;
         const ptrdiff_t neededIndex =
@@ -953,6 +989,12 @@ _MUL_CPY:
 
 _SCN_RGT: {
     const unsigned step = static_cast<unsigned>(insp->data);
+    if constexpr (Sparse) {
+        do {
+            sparseIndex += step;
+        } while (sparseTape[sparseIndex] != 0);
+        LOOP();
+    }
 
     // small pre-grow to cut resize churn during long scans
     if constexpr (Dynamic) {
@@ -1005,6 +1047,17 @@ _SCN_RGT: {
 
 _SCN_LFT: {
     const unsigned step = static_cast<unsigned>(insp->data);
+    if constexpr (Sparse) {
+        while (sparseIndex >= step && sparseTape[sparseIndex] != 0) {
+            sparseIndex -= step;
+        }
+        if (sparseIndex < step && sparseTape[sparseIndex] != 0) {
+            cellPtr = 0;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
+        }
+        LOOP();
+    }
 
     if (cell < cellBase) {
         cellPtr = 0;
@@ -1072,14 +1125,36 @@ _SCN_LFT: {
 }
 
 _END: {
-    ptrdiff_t finalIndex = cell - cellBase;
+    ptrdiff_t finalIndex;
+    if constexpr (Sparse) {
+        finalIndex = static_cast<ptrdiff_t>(sparseIndex);
+        size_t maxIndex = 0;
+        for (const auto& kv : sparseTape) {
+            if (kv.first > maxIndex) maxIndex = kv.first;
+        }
+        size_t needed = maxIndex + 1;
+        if constexpr (Dynamic) {
+            if (needed > cells.size()) cells.resize(needed, 0);
+        } else {
+            if (needed > cells.size()) {
+                cellPtr = finalIndex;
+                std::cerr << "cell pointer moved beyond end" << std::endl;
+                return -1;
+            }
+        }
+        for (const auto& kv : sparseTape) {
+            if (kv.first < cells.size()) cells[kv.first] = kv.second;
+        }
+    } else {
+        finalIndex = cell - cellBase;
 #if GOOF2_HAS_OS_VM
-    if (model == MemoryModel::OSBacked && cellBase != cells.data()) {
-        cells.assign(cellBase, cellBase + osSize);
-        goof2::os_free(cellBase, osSize * sizeof(CellT));
-        cellBase = cells.data();
-    }
+        if (model == MemoryModel::OSBacked && cellBase != cells.data()) {
+            cells.assign(cellBase, cellBase + osSize);
+            goof2::os_free(cellBase, osSize * sizeof(CellT));
+            cellBase = cells.data();
+        }
 #endif
+    }
     cellPtr = finalIndex;
 }
     return 0;
@@ -1089,11 +1164,26 @@ _END: {
 #endif
 }
 
+static bool shouldUseSparse(std::string_view code) {
+    ptrdiff_t pos = 0, minPos = 0, maxPos = 0;
+    for (char c : code) {
+        if (c == '>') {
+            ++pos;
+            if (pos > maxPos) maxPos = pos;
+        } else if (c == '<') {
+            --pos;
+            if (pos < minPos) minPos = pos;
+        }
+    }
+    return (maxPos - minPos) > 100000;  // trigger sparse when span exceeds 100k cells
+}
+
 template <typename CellT>
 int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                    int eof, bool dynamicSize, bool term) {
     int ret = 0;
     MemoryModel model = MemoryModel::Contiguous;
+    bool sparse = shouldUseSparse(code);
     // Heuristic: small tapes use contiguous doubling, medium tapes use
     // Fibonacci growth to trade memory for fewer reallocations, large tapes
     // switch to fixed-size paged allocation, and very large tapes use
@@ -1110,11 +1200,29 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
             model = MemoryModel::Fibonacci;
     }
     if (dynamicSize) {
-        term ? ret = executeImpl<CellT, true, true>(cells, cellPtr, code, optimize, eof, model)
-             : ret = executeImpl<CellT, true, false>(cells, cellPtr, code, optimize, eof, model);
+        if (sparse) {
+            term ? ret = executeImpl<CellT, true, true, true>(cells, cellPtr, code, optimize, eof,
+                                                              model)
+                 : ret = executeImpl<CellT, true, false, true>(cells, cellPtr, code, optimize, eof,
+                                                               model);
+        } else {
+            term ? ret = executeImpl<CellT, true, true, false>(cells, cellPtr, code, optimize, eof,
+                                                               model)
+                 : ret = executeImpl<CellT, true, false, false>(cells, cellPtr, code, optimize, eof,
+                                                                model);
+        }
     } else {
-        term ? ret = executeImpl<CellT, false, true>(cells, cellPtr, code, optimize, eof, model)
-             : ret = executeImpl<CellT, false, false>(cells, cellPtr, code, optimize, eof, model);
+        if (sparse) {
+            term ? ret = executeImpl<CellT, false, true, true>(cells, cellPtr, code, optimize, eof,
+                                                               model)
+                 : ret = executeImpl<CellT, false, false, true>(cells, cellPtr, code, optimize, eof,
+                                                                model);
+        } else {
+            term ? ret = executeImpl<CellT, false, true, false>(cells, cellPtr, code, optimize, eof,
+                                                                model)
+                 : ret = executeImpl<CellT, false, false, false>(cells, cellPtr, code, optimize,
+                                                                 eof, model);
+        }
     }
     return ret;
 }
