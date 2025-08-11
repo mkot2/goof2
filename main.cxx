@@ -43,72 +43,107 @@ int main(int argc, char* argv[]) {
 
     std::string filename;
     cmdl("i", "") >> filename;
-    const bool optimize = !cmdl["nopt"];
     const bool dumpMemoryFlag = cmdl["dm"];
     const bool help = cmdl["h"];
-    const bool dynamicSize = cmdl["dts"];
-    int eof = 0;
-    cmdl("eof", 0) >> eof;
-    int tsArg = 0;
-    cmdl("ts", 30000) >> tsArg;
-    int cwArg = 8;
-    cmdl("cw", 8) >> cwArg;
-    if (tsArg <= 0) {
+    ReplConfig cfg{!cmdl["nopt"], cmdl["dts"], 0, 30000, 8};
+    cmdl("eof", 0) >> cfg.eof;
+    cmdl("ts", 30000) >> cfg.tapeSize;
+    cmdl("cw", 8) >> cfg.cellWidth;
+    if (cfg.tapeSize == 0) {
         std::cout << Term::color_fg(Term::Color::Name::Red)
                   << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                   << " Tape size must be positive; using default 30000" << std::endl;
-        tsArg = 30000;
+        cfg.tapeSize = 30000;
     }
-    size_t ts = static_cast<size_t>(tsArg);
-    size_t cellPtr = 0;
-
-    auto run = [&](auto dummy) {
-        using CellT = decltype(dummy);
-        std::vector<CellT> cells(ts, 0);
-        if (help) {
-            std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
-            return;  // no execution
-        }
-        if (!filename.empty()) {
-            std::ifstream in(filename, std::ios::binary);
-            if (!in.is_open()) {
-                std::cout << Term::color_fg(Term::Color::Name::Red)
-                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                          << " File could not be opened";
-            } else {
-                std::string code((std::istreambuf_iterator<char>(in)),
-                                 std::istreambuf_iterator<char>());
-                if (!in && !in.eof()) {
-                    std::cout << Term::color_fg(Term::Color::Name::Red)
-                              << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                              << " Error while reading file";
-                } else {
-                    executeExcept<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize);
-                    if (dumpMemoryFlag) dumpMemory<CellT>(cells, cellPtr);
-                }
-            }
-        } else {
-            runRepl<CellT>(cells, cellPtr, ts, optimize, eof, dynamicSize);
-        }
-    };
-
-    switch (cwArg) {
-        case 8:
-            run(uint8_t{});
-            break;
-        case 16:
-            run(uint16_t{});
-            break;
-        case 32:
-            run(uint32_t{});
-            break;
-        case 64:
-            run(uint64_t{});
-            break;
-        default:
+    if (help) {
+        std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
+        return 0;
+    }
+    if (!filename.empty()) {
+        size_t cellPtr = 0;
+        std::ifstream in(filename, std::ios::binary);
+        if (!in.is_open()) {
             std::cout << Term::color_fg(Term::Color::Name::Red)
                       << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " Unsupported cell width; use 8,16,32,64" << std::endl;
+                      << " File could not be opened";
             return 1;
+        }
+        std::string code((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (!in && !in.eof()) {
+            std::cout << Term::color_fg(Term::Color::Name::Red)
+                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                      << " Error while reading file";
+            return 1;
+        }
+        switch (cfg.cellWidth) {
+            case 8: {
+                std::vector<uint8_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                       cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
+                break;
+            }
+            case 16: {
+                std::vector<uint16_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint16_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                        cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
+                break;
+            }
+            case 32: {
+                std::vector<uint32_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint32_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                        cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
+                break;
+            }
+            case 64: {
+                std::vector<uint64_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint64_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                        cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
+                break;
+            }
+            default:
+                std::cout << Term::color_fg(Term::Color::Name::Red)
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                          << " Unsupported cell width; use 8,16,32,64" << std::endl;
+                return 1;
+        }
+        return 0;
     }
+    while (true) {
+        size_t cellPtr = 0;
+        int newCw = 0;
+        switch (cfg.cellWidth) {
+            case 8: {
+                std::vector<uint8_t> cells(cfg.tapeSize, 0);
+                newCw = runRepl<uint8_t>(cells, cellPtr, cfg);
+                break;
+            }
+            case 16: {
+                std::vector<uint16_t> cells(cfg.tapeSize, 0);
+                newCw = runRepl<uint16_t>(cells, cellPtr, cfg);
+                break;
+            }
+            case 32: {
+                std::vector<uint32_t> cells(cfg.tapeSize, 0);
+                newCw = runRepl<uint32_t>(cells, cellPtr, cfg);
+                break;
+            }
+            case 64: {
+                std::vector<uint64_t> cells(cfg.tapeSize, 0);
+                newCw = runRepl<uint64_t>(cells, cellPtr, cfg);
+                break;
+            }
+            default:
+                std::cout << Term::color_fg(Term::Color::Name::Red)
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                          << " Unsupported cell width; use 8,16,32,64" << std::endl;
+                return 1;
+        }
+        if (newCw == 0) break;
+        cfg.cellWidth = newCw;
+    }
+    return 0;
 }
