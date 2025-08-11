@@ -4,6 +4,13 @@ project(bfvmcpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Default to a Release build if no build type is explicitly set.  This keeps
+# binaries small and enables the high-optimization flags defined below.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "No build type specified. Defaulting to Release.")
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # Stub warnings target required by cpp-terminal
 add_library(Warnings INTERFACE)
 add_library(Warnings::Warnings ALIAS Warnings)
@@ -55,6 +62,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(bfvmcpp PRIVATE
         $<$<CONFIG:Release>:-flto>
         $<$<CONFIG:Release>:-Wl,--gc-sections>
+        $<$<CONFIG:Release>:-s>
     )
     set_property(TARGET bfvmcpp PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
