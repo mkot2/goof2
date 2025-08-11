@@ -67,3 +67,6 @@ if(CLANG_FORMAT_EXE)
         COMMENT "Format source files"
     )
 endif()
+
+enable_testing()
+add_subdirectory(tests)
