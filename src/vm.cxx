@@ -30,12 +30,33 @@
 #define GOOF2_HAS_OS_VM 0
 #endif
 
+#if GOOF2_HAS_OS_VM
+namespace goof2 {
+#ifdef _WIN32
+static void* default_os_alloc(size_t bytes) {
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+}
+static void default_os_free(void* ptr, size_t) { VirtualFree(ptr, 0, MEM_RELEASE); }
+#else
+static void* default_os_alloc(size_t bytes) {
+    return mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+}
+static void default_os_free(void* ptr, size_t bytes) { munmap(ptr, bytes); }
+#endif
+void* (*os_alloc)(size_t) = default_os_alloc;
+void (*os_free)(void*, size_t) = default_os_free;
+}  // namespace goof2
+#endif
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include "simde/x86/avx2.h"
 #include "simde/x86/avx512.h"
+#include "simde/x86/avx512/cmpeq.h"
+#include "simde/x86/avx512/loadu.h"
+#include "simde/x86/avx512/setzero.h"
 #include "simde/x86/sse2.h"
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
@@ -44,6 +65,8 @@
 #if defined(__GNUC__) || defined(__clang__)
 #define TZCNT32(x) __builtin_ctz((unsigned)(x))
 #define LZCNT32(x) __builtin_clz((unsigned)(x))
+#define TZCNT64(x) __builtin_ctzll((unsigned long long)(x))
+#define LZCNT64(x) __builtin_clzll((unsigned long long)(x))
 #else
 static inline unsigned TZCNT32(unsigned x) {
     unsigned i = 0;
@@ -53,6 +76,16 @@ static inline unsigned TZCNT32(unsigned x) {
 static inline unsigned LZCNT32(unsigned x) {
     unsigned i = 0;
     while (((x >> (31u - i)) & 1u) == 0u) ++i;
+    return i;
+}
+static inline unsigned TZCNT64(unsigned long long x) {
+    unsigned i = 0;
+    while (((x >> i) & 1ull) == 0ull) ++i;
+    return i;
+}
+static inline unsigned LZCNT64(unsigned long long x) {
+    unsigned i = 0;
+    while (((x >> (63u - i)) & 1ull) == 0ull) ++i;
     return i;
 }
 #endif
@@ -90,6 +123,18 @@ static inline uint16_t strideMask16(unsigned step, unsigned phase) {
         if (((i + phase) % step) == 0) {
             unsigned bit = i * Bytes;
             m |= static_cast<uint16_t>(pattern << bit);
+        }
+    }
+    return m;
+}
+
+template <unsigned Bytes>
+static inline uint64_t strideMask64(unsigned step, unsigned phase) {
+    uint64_t m = 0;
+    constexpr unsigned lanes = 64 / Bytes;
+    for (unsigned i = 0; i < lanes; i++) {
+        if (((i + phase) % step) == 0) {
+            m |= (uint64_t(1) << i);
         }
     }
     return m;
@@ -142,7 +187,30 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
         }
         return (size_t)(end - p);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
+        constexpr unsigned LANES = 64 / Bytes;
+        while (((uintptr_t)x & 63u) && x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        const simde__m512i vz = simde_mm512_setzero_si512();
+        for (; x + LANES <= end; x += LANES) {
+            simde__m512i v = simde_mm512_loadu_si512((const void*)x);
+            uint64_t m;
+            if constexpr (Bytes == 1)
+                m = simde_mm512_cmpeq_epi8_mask(v, vz);
+            else if constexpr (Bytes == 2)
+                m = simde_mm512_cmpeq_epu16_mask(v, vz);
+            else if constexpr (Bytes == 4)
+                m = simde_mm512_cmpeq_epi32_mask(v, vz);
+            else
+                m = simde_mm512_cmpeq_epi64_mask(v, vz);
+            if (m) {
+                unsigned idx = TZCNT64(m);
+                return (size_t)((x - p) + idx);
+            }
+        }
+#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)x & 31u) && x < end) {
             if (*x == 0) return (size_t)(x - p);
@@ -211,7 +279,33 @@ static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
         }
         return (size_t)(p - base + 1);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
+        constexpr unsigned LANES = 64 / Bytes;
+        while (((uintptr_t)(x - (LANES - 1)) & 63u) && x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        const simde__m512i vz = simde_mm512_setzero_si512();
+        while (x + 1 >= base + LANES) {
+            const CellT* blk = x - (LANES - 1);
+            simde__m512i v = simde_mm512_loadu_si512((const void*)blk);
+            uint64_t m;
+            if constexpr (Bytes == 1)
+                m = simde_mm512_cmpeq_epi8_mask(v, vz);
+            else if constexpr (Bytes == 2)
+                m = simde_mm512_cmpeq_epu16_mask(v, vz);
+            else if constexpr (Bytes == 4)
+                m = simde_mm512_cmpeq_epi32_mask(v, vz);
+            else
+                m = simde_mm512_cmpeq_epi64_mask(v, vz);
+            if (m) {
+                unsigned bit = 63u - (unsigned)LZCNT64(m);
+                unsigned lane = bit;
+                return (size_t)(p - (blk + lane));
+            }
+            x -= LANES;
+        }
+#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
             if (*x == 0) return (size_t)(p - x);
@@ -290,7 +384,33 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
         }
         return (size_t)(end - p);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
+        constexpr unsigned LANES = 64 / Bytes;
+        while (((uintptr_t)x & 63u) && x < end) {
+            if (phase == 0 && *x == 0) return (size_t)(x - p);
+            ++x;
+            phase = (phase + 1) & Mask;
+        }
+        const simde__m512i vz = simde_mm512_setzero_si512();
+        for (; x + LANES <= end; x += LANES) {
+            simde__m512i v = simde_mm512_loadu_si512((const void*)x);
+            uint64_t m;
+            if constexpr (Bytes == 1)
+                m = simde_mm512_cmpeq_epi8_mask(v, vz);
+            else if constexpr (Bytes == 2)
+                m = simde_mm512_cmpeq_epu16_mask(v, vz);
+            else if constexpr (Bytes == 4)
+                m = simde_mm512_cmpeq_epi32_mask(v, vz);
+            else
+                m = simde_mm512_cmpeq_epi64_mask(v, vz);
+            m &= strideMask64<Bytes>(Step, phase);
+            if (m) {
+                unsigned idx = TZCNT64(m);
+                return (size_t)((x - p) + idx);
+            }
+            phase = (phase + LANES) & Mask;
+        }
+#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)x & 31u) && x < end) {
             if (phase == 0 && *x == 0) return (size_t)(x - p);
@@ -369,7 +489,36 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
         }
         return (size_t)(p - base + 1);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
+        constexpr unsigned LANES = 64 / Bytes;
+        while (((uintptr_t)(x - (LANES - 1)) & 63u) && x >= base) {
+            if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
+            --x;
+            phaseAtP = (phaseAtP + Step - 1) & Mask;
+        }
+        const simde__m512i vz = simde_mm512_setzero_si512();
+        while (x + 1 >= base + LANES) {
+            const CellT* blk = x - (LANES - 1);
+            unsigned lane0 = (unsigned)(blk - base) & Mask;
+            simde__m512i v = simde_mm512_loadu_si512((const void*)blk);
+            uint64_t m;
+            if constexpr (Bytes == 1)
+                m = simde_mm512_cmpeq_epi8_mask(v, vz);
+            else if constexpr (Bytes == 2)
+                m = simde_mm512_cmpeq_epu16_mask(v, vz);
+            else if constexpr (Bytes == 4)
+                m = simde_mm512_cmpeq_epi32_mask(v, vz);
+            else
+                m = simde_mm512_cmpeq_epi64_mask(v, vz);
+            m &= strideMask64<Bytes>(Step, lane0);
+            if (m) {
+                unsigned bit = 63u - (unsigned)LZCNT64(m);
+                unsigned lane = bit;
+                return (size_t)(p - (blk + lane));
+            }
+            x -= LANES;
+        }
+#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
             if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
@@ -712,28 +861,23 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     size_t osSize = cells.size();
 #if GOOF2_HAS_OS_VM
     if (model == MemoryModel::OSBacked) {
+        void* ptr = goof2::os_alloc(osSize * sizeof(CellT));
 #ifdef _WIN32
-        CellT* osMem = static_cast<CellT*>(VirtualAlloc(nullptr, osSize * sizeof(CellT),
-                                                        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (osMem) {
-            std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
-            cellBase = osMem;
-            cell = cellBase + cellPtr;
-        } else {
-            model = MemoryModel::Contiguous;
-        }
+        if (ptr)
 #else
-        void* ptr = mmap(nullptr, osSize * sizeof(CellT), PROT_READ | PROT_WRITE,
-                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (ptr != MAP_FAILED) {
+        if (ptr != MAP_FAILED)
+#endif
+        {
             CellT* osMem = static_cast<CellT*>(ptr);
             std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
             cellBase = osMem;
             cell = cellBase + cellPtr;
         } else {
+            std::cerr
+                << "warning: OS-backed allocation failed, falling back to contiguous memory model"
+                << std::endl;
             model = MemoryModel::Contiguous;
         }
-#endif
     }
 #endif
 
@@ -756,45 +900,39 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             if (target == MemoryModel::OSBacked) {
 #if GOOF2_HAS_OS_VM
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+                void* nptr = goof2::os_alloc(newSize * sizeof(CellT));
 #ifdef _WIN32
-                CellT* newMem = static_cast<CellT*>(VirtualAlloc(
-                    nullptr, newSize * sizeof(CellT), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-                if (!newMem) throw std::bad_alloc();
+                bool ok = nptr != nullptr;
 #else
-                void* nptr = mmap(nullptr, newSize * sizeof(CellT), PROT_READ | PROT_WRITE,
-                                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-                if (nptr == MAP_FAILED) throw std::bad_alloc();
-                CellT* newMem = static_cast<CellT*>(nptr);
+                bool ok = nptr != MAP_FAILED;
 #endif
-                std::memcpy(
-                    newMem, cellBase,
-                    (model == MemoryModel::OSBacked ? osSize : cells.size()) * sizeof(CellT));
-                if (model == MemoryModel::OSBacked) {
-#ifdef _WIN32
-                    VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-                    munmap(cellBase, osSize * sizeof(CellT));
-#endif
+                if (ok) {
+                    CellT* newMem = static_cast<CellT*>(nptr);
+                    std::memcpy(
+                        newMem, cellBase,
+                        (model == MemoryModel::OSBacked ? osSize : cells.size()) * sizeof(CellT));
+                    if (model == MemoryModel::OSBacked) {
+                        goof2::os_free(cellBase, osSize * sizeof(CellT));
+                    } else {
+                        std::vector<CellT>().swap(cells);
+                    }
+                    cellBase = newMem;
+                    osSize = newSize;
+                    model = MemoryModel::OSBacked;
+                    fibA = fibB = osSize;
                 } else {
-                    std::vector<CellT>().swap(cells);
+                    std::cerr << "warning: OS-backed allocation failed, falling back to contiguous "
+                                 "memory model"
+                              << std::endl;
+                    model = MemoryModel::Contiguous;
                 }
-                cellBase = newMem;
-                osSize = newSize;
-                model = MemoryModel::OSBacked;
-                fibA = fibB = osSize;
 #endif
             } else {
                 if (model == MemoryModel::OSBacked) {
                     size_t oldSize = osSize;
                     cells.resize(oldSize);
                     std::memcpy(cells.data(), cellBase, oldSize * sizeof(CellT));
-#if GOOF2_HAS_OS_VM
-#ifdef _WIN32
-                    VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-                    munmap(cellBase, osSize * sizeof(CellT));
-#endif
-#endif
+                    goof2::os_free(cellBase, osSize * sizeof(CellT));
                     cellBase = cells.data();
                 }
                 model = target;
@@ -806,25 +944,29 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 #if GOOF2_HAS_OS_VM
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
                 if (newSize > osSize) {
+                    void* nptr = goof2::os_alloc(newSize * sizeof(CellT));
 #ifdef _WIN32
-                    CellT* newMem =
-                        static_cast<CellT*>(VirtualAlloc(nullptr, newSize * sizeof(CellT),
-                                                         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-                    if (!newMem) throw std::bad_alloc();
+                    bool ok = nptr != nullptr;
 #else
-                    void* nptr = mmap(nullptr, newSize * sizeof(CellT), PROT_READ | PROT_WRITE,
-                                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-                    if (nptr == MAP_FAILED) throw std::bad_alloc();
-                    CellT* newMem = static_cast<CellT*>(nptr);
+                    bool ok = nptr != MAP_FAILED;
 #endif
-                    std::memcpy(newMem, cellBase, osSize * sizeof(CellT));
-#ifdef _WIN32
-                    VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-                    munmap(cellBase, osSize * sizeof(CellT));
-#endif
-                    cellBase = newMem;
-                    osSize = newSize;
+                    if (ok) {
+                        CellT* newMem = static_cast<CellT*>(nptr);
+                        std::memcpy(newMem, cellBase, osSize * sizeof(CellT));
+                        goof2::os_free(cellBase, osSize * sizeof(CellT));
+                        cellBase = newMem;
+                        osSize = newSize;
+                    } else {
+                        std::cerr << "warning: OS-backed allocation failed, falling back to "
+                                     "contiguous memory model"
+                                  << std::endl;
+                        cells.resize(newSize);
+                        std::memcpy(cells.data(), cellBase, osSize * sizeof(CellT));
+                        goof2::os_free(cellBase, osSize * sizeof(CellT));
+                        cellBase = cells.data();
+                        osSize = cells.size();
+                        model = MemoryModel::Contiguous;
+                    }
                 }
                 break;
 #else
@@ -1196,11 +1338,7 @@ _END: {
 #if GOOF2_HAS_OS_VM
     if (model == MemoryModel::OSBacked && cellBase != cells.data()) {
         cells.assign(cellBase, cellBase + osSize);
-#ifdef _WIN32
-        VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-        munmap(cellBase, osSize * sizeof(CellT));
-#endif
+        goof2::os_free(cellBase, osSize * sizeof(CellT));
         cellBase = cells.data();
     }
 #endif
