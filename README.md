@@ -49,6 +49,26 @@ cells at startup:
 ./goof --cw 16 program.bf
 ```
 
+### Memory growth strategies
+
+When dynamic tape resizing is enabled, the VM heuristically picks one of several
+memory growth strategies:
+
+- **Contiguous doubling** – the tape doubles in size whenever more space is
+  required, minimizing unused cells for small programs.
+- **Fibonacci growth** – for medium tapes, sizes follow the Fibonacci sequence
+  to reduce the number of reallocations at the cost of some extra memory.
+- **Paged allocation** – very large tapes are extended in fixed 64KB pages to
+  avoid expensive large reallocations.
+- **OS-backed virtual memory** – when supported by the host OS, extremely large
+  tapes reserve address space via `mmap`/`VirtualAlloc` so physical memory is
+  committed only as cells are touched.
+
+The heuristics choose contiguous doubling up to 2^16 cells, Fibonacci growth
+up to 2^24 cells, paged allocation up to 2^28 cells, and OS-backed virtual
+memory beyond that when available. See `src/vm.cxx` for implementation
+details.
+
 ## License
 
 This project is licensed under the terms of the GNU Affero General Public License v3.0 or later.

@@ -16,6 +16,64 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__unix__) || defined(__APPLE__)
+#include <sys/mman.h>
+#endif
+
+#if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
+#define BFVMCPP_HAS_OS_VM 1
+#else
+#define BFVMCPP_HAS_OS_VM 0
+#endif
+
+#if BFVMCPP_HAS_OS_VM
+template <typename T>
+static T* osAlloc(size_t count) {
+#if defined(_WIN32)
+    return static_cast<T*>(
+        VirtualAlloc(nullptr, count * sizeof(T), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+#else
+    void* p = mmap(nullptr, count * sizeof(T), PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANON, -1, 0);
+    return p == MAP_FAILED ? nullptr : static_cast<T*>(p);
+#endif
+}
+
+template <typename T>
+static T* osRealloc(T* ptr, size_t oldCount, size_t newCount) {
+#if defined(_WIN32)
+    T* np = static_cast<T*>(
+        VirtualAlloc(nullptr, newCount * sizeof(T), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!np) return nullptr;
+    std::memcpy(np, ptr, oldCount * sizeof(T));
+    VirtualFree(ptr, 0, MEM_RELEASE);
+    return np;
+#else
+#ifdef MREMAP_MAYMOVE
+    void* np = mremap(ptr, oldCount * sizeof(T), newCount * sizeof(T), MREMAP_MAYMOVE);
+    if (np != MAP_FAILED) return static_cast<T*>(np);
+#endif
+    void* np = mmap(nullptr, newCount * sizeof(T), PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (np == MAP_FAILED) return nullptr;
+    std::memcpy(np, ptr, oldCount * sizeof(T));
+    munmap(ptr, oldCount * sizeof(T));
+    return static_cast<T*>(np);
+#endif
+}
+
+template <typename T>
+static void osFree(T* ptr, size_t count) {
+#if defined(_WIN32)
+    VirtualFree(ptr, 0, MEM_RELEASE);
+#else
+    munmap(ptr, count * sizeof(T));
+#endif
+}
+#endif
+
 #define BOOST_REGEX_MAX_STATE_COUNT 1000000000  // Should be enough to parse anything
 #include <boost/regex.hpp>
 
@@ -403,7 +461,14 @@ std::string processBalanced(std::string_view s, char no1, char no2) {
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
 
-enum class MemoryModel { Contiguous, Paged, Fibonacci };
+enum class MemoryModel {
+    Contiguous,
+    Paged,
+    Fibonacci
+#if BFVMCPP_HAS_OS_VM
+    , Virtual
+#endif
+};
 
 template <typename CellT, bool Dynamic, bool Term>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
@@ -646,29 +711,62 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     std::array<char, 1024> buffer = {0};
 
     constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
-    size_t fibA = cells.size(), fibB = cells.size();
+    size_t cellCount = cells.size();
+    size_t fibA = cellCount, fibB = cellCount;
+#if BFVMCPP_HAS_OS_VM
+    if (model == MemoryModel::Virtual) {
+        if (CellT* mem = osAlloc<CellT>(cellCount)) {
+            std::memcpy(mem, cellBase, cellCount * sizeof(CellT));
+            cellBase = mem;
+            cell = mem + cellPtr;
+        } else {
+            model = MemoryModel::Contiguous;
+        }
+    }
+#endif
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         size_t needed = static_cast<size_t>(neededIndex + 1);
         switch (model) {
             case MemoryModel::Paged: {
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
-                if (newSize > cells.size()) cells.resize(newSize);
+                if (newSize > cellCount) {
+                    cells.resize(newSize);
+                    cellBase = cells.data();
+                    cellCount = cells.size();
+                }
                 break;
             }
             case MemoryModel::Fibonacci: {
-                while (cells.size() < needed) {
+                while (cellCount < needed) {
                     size_t next = fibA + fibB;
                     fibA = fibB;
                     fibB = next;
                     cells.resize(next);
+                    cellBase = cells.data();
+                    cellCount = cells.size();
                 }
                 break;
             }
+#if BFVMCPP_HAS_OS_VM
+            case MemoryModel::Virtual: {
+                if (needed > cellCount) {
+                    size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+                    CellT* mem = osRealloc(static_cast<CellT*>(cellBase), cellCount, newSize);
+                    if (!mem) throw std::bad_alloc();
+                    cellBase = mem;
+                    cellCount = newSize;
+                }
+                break;
+            }
+#endif
             default:
-                while (cells.size() < needed) cells.resize(cells.size() * 2);
+                while (cellCount < needed) {
+                    cells.resize(cellCount * 2);
+                    cellBase = cells.data();
+                    cellCount = cells.size();
+                }
                 break;
         }
-        cellBase = cells.data();
         cell = cellBase + currentCell;
     };
 
@@ -684,7 +782,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     if (insp->offset > 0) {                                        \
         const ptrdiff_t currentCell = cell - cellBase;             \
         const ptrdiff_t neededIndex = currentCell + insp->offset;  \
-        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) { \
+        if (neededIndex >= static_cast<ptrdiff_t>(cellCount)) {    \
             ensure(currentCell, neededIndex);                      \
         }                                                          \
     }
@@ -708,7 +806,7 @@ _PTR_MOV: {
         std::cerr << "cell pointer moved before start" << std::endl;
         return -1;
     }
-    if (newIndex >= static_cast<ptrdiff_t>(cells.size())) {
+    if (newIndex >= static_cast<ptrdiff_t>(cellCount)) {
         if constexpr (Dynamic) {
             ensure(currentCell, newIndex);
         } else {
@@ -777,14 +875,14 @@ _SCN_RGT: {
 
     // small pre-grow to cut resize churn during long scans
     if constexpr (Dynamic) {
-        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size())) {
+        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cellCount)) {
             const ptrdiff_t rel = cell - cellBase;
             ensure(rel, rel + 64);
         }
     }
 
     for (;;) {
-        CellT* const end = cells.data() + cells.size();
+        CellT* const end = cellBase + cellCount;
         size_t off;
         if (step == 1) {
             off = simdScan0Fwd<CellT>(cell, end);
@@ -882,6 +980,13 @@ _SCN_LFT: {
 
 _END:
     cellPtr = cell - cellBase;
+#if BFVMCPP_HAS_OS_VM
+    if (model == MemoryModel::Virtual && cellBase != cells.data()) {
+        cells.resize(cellCount);
+        std::memcpy(cells.data(), cellBase, cellCount * sizeof(CellT));
+        osFree(static_cast<CellT*>(cellBase), cellCount);
+    }
+#endif
     return 0;
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -895,9 +1000,15 @@ int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& co
     int ret = 0;
     MemoryModel model = MemoryModel::Contiguous;
     // Heuristic: small tapes use contiguous doubling, medium tapes use
-    // Fibonacci growth to trade memory for fewer reallocations, and very
-    // large tapes switch to fixed-size paged allocation.
+    // Fibonacci growth to trade memory for fewer reallocations, very
+    // large tapes switch to fixed-size paged allocation, and huge tapes
+    // use OS-backed virtual memory when available.
     if (dynamicSize) {
+#if BFVMCPP_HAS_OS_VM
+        if (cells.size() > (1u << 28))
+            model = MemoryModel::Virtual;
+        else
+#endif
         if (cells.size() > (1u << 24))
             model = MemoryModel::Paged;
         else if (cells.size() > (1u << 16))
