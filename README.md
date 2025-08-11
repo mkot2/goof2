@@ -1,4 +1,6 @@
 # goof2
+![Lines of Code](https://img.shields.io/tokei/lines/github/goof2/goof2?label=lines%20of%20code)
+
 An all-in-one Brainfuck development tool/VM
 
 ## Building
