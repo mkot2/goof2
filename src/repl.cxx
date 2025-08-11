@@ -74,9 +74,12 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     scr.clear();
 
     const std::size_t promptWidth = 2;
-    const std::size_t wrap = cols > promptWidth ? cols - promptWidth : 0;
+    const std::size_t wrap = cols > promptWidth ? cols - promptWidth : 1;
+    const std::size_t maxInputLines = rows > 1 ? rows - 1 : 1;
+    const std::size_t maxChars = wrap * maxInputLines;
+    std::size_t startPos = input.size() > maxChars ? input.size() - maxChars : 0;
     std::vector<std::string> lines;
-    for (std::size_t pos = 0; pos < input.size(); pos += wrap) {
+    for (std::size_t pos = startPos; pos < input.size(); pos += wrap) {
         lines.push_back(input.substr(pos, wrap));
     }
     if (lines.empty()) lines.push_back("");
@@ -108,7 +111,9 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     scr.fill_fg(1, rows, cols, 1, Term::Color::Name::Black);
     scr.print_str(1, rows, status);
 
-    scr.set_cursor_pos(std::min(promptWidth + lines.back().size(), cols), rows - 1);
+    std::size_t cursor_col = std::min(promptWidth + lines.back().size() + 1, cols);
+    std::size_t cursor_row = logHeight + lines.size();
+    scr.set_cursor_pos(cursor_col, cursor_row);
     return scr.render(1, 1, true);
 }
 }  // namespace
