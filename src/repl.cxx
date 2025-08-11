@@ -192,3 +192,4 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimiz
 template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, bool, int, bool);
 template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, bool, int, bool);
 template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, bool, int, bool);
+template void runRepl<uint64_t>(std::vector<uint64_t>&, size_t&, size_t, bool, int, bool);
