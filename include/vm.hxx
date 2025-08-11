@@ -28,6 +28,7 @@ namespace bfvmcpp {
 /// @param dynamicSize Allow dynamic resizing of the cells vector. Disable if you want, for example,
 /// a constant number of decimals for a calculation, constant cell vector size. OOB on fixed size is
 /// currently not handled.
+/// @param maxTs Maximum allowed tape size when dynamic resizing is enabled. 0 means no limit.
 /// @param term A few tweaks necessary to make it operable multiple times on the same cells. Check
 /// BFVMCPP_DEFAULT_SAVE_STATE.
 ///
@@ -38,5 +39,6 @@ namespace bfvmcpp {
 template <typename CellT>
 int execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
             bool optimize = BFVMCPP_OPTIMIZE, int eof = BFVMCPP_DEFAULT_EOF_BEHAVIOUR,
-            bool dynamicSize = BFVMCPP_DYNAMIC_CELLS_SIZE, bool term = BFVMCPP_DEFAULT_SAVE_STATE);
+            bool dynamicSize = BFVMCPP_DYNAMIC_CELLS_SIZE, size_t maxTs = 0,
+            bool term = BFVMCPP_DEFAULT_SAVE_STATE);
 }  // namespace bfvmcpp

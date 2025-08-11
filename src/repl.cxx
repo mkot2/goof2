@@ -120,8 +120,8 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
 }  // namespace
 
 template <typename CellT>
-void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimize, int eof,
-             bool dynamicSize) {
+void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, size_t maxTs, bool optimize,
+             int eof, bool dynamicSize) {
     Term::terminal.setOptions(Term::Option::ClearScreen, Term::Option::NoSignalKeys,
                               Term::Option::Raw);
     Term::Screen termSize = Term::screen_size();
@@ -162,7 +162,8 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimiz
             } else if (!input.empty()) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
-                executeExcept<CellT>(cells, cellPtr, input, optimize, eof, dynamicSize, true);
+                executeExcept<CellT>(cells, cellPtr, input, optimize, eof, dynamicSize, maxTs,
+                                      true);
                 std::cout.rdbuf(oldbuf);
                 appendLines(log, oss.str());
             }
@@ -189,6 +190,6 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimiz
     Term::terminal.setOptions(Term::Option::Cooked, Term::Option::SignalKeys, Term::Option::Cursor);
 }
 
-template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, bool, int, bool);
-template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, bool, int, bool);
-template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, bool, int, bool);
+template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, size_t, bool, int, bool);
+template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, size_t, bool, int, bool);
+template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, size_t, bool, int, bool);
