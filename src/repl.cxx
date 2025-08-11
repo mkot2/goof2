@@ -17,8 +17,8 @@
 #include "cpp-terminal/screen.hpp"
 #include "cpp-terminal/style.hpp"
 #include "cpp-terminal/terminal.hpp"
-#include "cpp-terminal/window.hpp"
 #include "cpp-terminal/terminfo.hpp"
+#include "cpp-terminal/window.hpp"
 #include "include/vm.hxx"
 
 namespace {
@@ -163,7 +163,7 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, size_t maxTs
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
                 executeExcept<CellT>(cells, cellPtr, input, optimize, eof, dynamicSize, maxTs,
-                                      true);
+                                     true);
                 std::cout.rdbuf(oldbuf);
                 appendLines(log, oss.str());
             }
@@ -193,3 +193,4 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, size_t maxTs
 template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, size_t, bool, int, bool);
 template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, size_t, bool, int, bool);
 template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, size_t, bool, int, bool);
+template void runRepl<uint64_t>(std::vector<uint64_t>&, size_t&, size_t, size_t, bool, int, bool);

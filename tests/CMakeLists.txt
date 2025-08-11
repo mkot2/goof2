@@ -9,7 +9,6 @@ target_include_directories(vm_execute_tests PRIVATE
 )
 
 target_link_libraries(vm_execute_tests PRIVATE
-    Boost::regex
     cpp-terminal::cpp-terminal
     Warnings
 )
@@ -27,7 +26,6 @@ target_include_directories(vm_execute_fuzz PRIVATE
 )
 
 target_link_libraries(vm_execute_fuzz PRIVATE
-    Boost::regex
     cpp-terminal::cpp-terminal
     Warnings
 )
