@@ -8,13 +8,15 @@
 #include <vector>
 
 static std::string run(std::string code, std::vector<uint8_t>& cells, size_t& cellPtr,
-                       const std::string& input = "", int eof = 0) {
+                       const std::string& input = "", int eof = 0,
+                       bool dynamicSize = true, int* retOut = nullptr) {
     std::istringstream in(input);
     std::ostringstream out;
     auto* cinbuf = std::cin.rdbuf(in.rdbuf());
     auto* coutbuf = std::cout.rdbuf(out.rdbuf());
     std::cin.clear();
-    bfvmcpp::execute<uint8_t>(cells, cellPtr, code, true, eof, true, false);
+    int ret = bfvmcpp::execute<uint8_t>(cells, cellPtr, code, true, eof, dynamicSize, false);
+    if (retOut) *retOut = ret;
     std::cin.rdbuf(cinbuf);
     std::cout.rdbuf(coutbuf);
     return out.str();
@@ -56,10 +58,37 @@ static void test_eof_behavior() {
     assert(cells[0] == 255);
 }
 
+static void test_boundary_checks() {
+    {
+        std::vector<uint8_t> cells(1, 0);
+        size_t ptr = 0;
+        int ret;
+        run("<", cells, ptr, "", 0, true, &ret);
+        assert(ret != 0);
+    }
+    {
+        std::vector<uint8_t> cells(1, 0);
+        size_t ptr = 0;
+        int ret;
+        run(">", cells, ptr, "", 0, false, &ret);
+        assert(ret != 0);
+    }
+    {
+        std::vector<uint8_t> cells(1, 0);
+        size_t ptr = 0;
+        int ret;
+        run(">", cells, ptr, "", 0, true, &ret);
+        assert(ret == 0);
+        assert(ptr == 1);
+        assert(cells.size() > 1);
+    }
+}
+
 int main() {
     test_loops();
     test_io();
     test_wrapping();
     test_eof_behavior();
+    test_boundary_checks();
     return 0;
 }

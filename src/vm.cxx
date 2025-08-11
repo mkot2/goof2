@@ -690,18 +690,26 @@ _SET:
     OFFCELL() = insp->data;
     LOOP();
 
-_PTR_MOV:
-    if constexpr (Dynamic) {
-        const ptrdiff_t currentCell = cell - cellBase;
-        if (insp->data > 0) {
-            const ptrdiff_t neededIndex = currentCell + insp->data;
-            if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) {
-                ensure(currentCell, neededIndex);
-            }
+_PTR_MOV: {
+    const ptrdiff_t currentCell = cell - cellBase;
+    const ptrdiff_t newIndex = currentCell + insp->data;
+    if (newIndex < 0) {
+        cellPtr = currentCell;
+        std::cerr << "cell pointer moved before start" << std::endl;
+        return -1;
+    }
+    if (newIndex >= static_cast<ptrdiff_t>(cells.size())) {
+        if constexpr (Dynamic) {
+            ensure(currentCell, newIndex);
+        } else {
+            cellPtr = currentCell;
+            std::cerr << "cell pointer moved beyond end" << std::endl;
+            return -1;
         }
     }
-    cell += insp->data;
+    cell = cellBase + newIndex;
     LOOP();
+}
 
 _JMP_ZER:
     if (!*cell) [[unlikely]]
@@ -792,7 +800,10 @@ _SCN_RGT: {
             ensure(rel, rel);
             continue;
         } else {
-            LOOP();
+            cell = end - 1;
+            cellPtr = cell - cellBase;
+            std::cerr << "cell pointer moved beyond end" << std::endl;
+            return -1;
         }
     }
 }
@@ -801,23 +812,43 @@ _SCN_LFT: {
     const unsigned step = static_cast<unsigned>(insp->data);
 
     if (cell < cellBase) {
-        LOOP();
+        cellPtr = 0;
+        std::cerr << "cell pointer moved before start" << std::endl;
+        return -1;
     }
 
     if (step == 1) {
         size_t back = simdScan0Back<CellT>(cellBase, cell);
         cell -= back;
+        if (cell < cellBase) {
+            cell = cellBase;
+            cellPtr = 0;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
+        }
         LOOP();
     } else if (step == 2 || step == 4 || step == 8) {
         const unsigned phaseAtP = posMod(static_cast<ptrdiff_t>(cell - cellBase), step);
         size_t back = simdScan0BackStride<CellT>(cellBase, cell, step, phaseAtP);
         cell -= back;
+        if (cell < cellBase) {
+            cell = cellBase;
+            cellPtr = 0;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
+        }
         LOOP();
     } else {
         // scalar fallback for arbitrary step
         while (cell >= cellBase && *cell != 0) {
             if ((cell - cellBase) < static_cast<ptrdiff_t>(step)) break;
             cell -= step;
+        }
+        if (cell < cellBase) {
+            cell = cellBase;
+            cellPtr = 0;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
         }
         LOOP();
     }
