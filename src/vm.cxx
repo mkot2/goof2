@@ -52,11 +52,6 @@ void (*os_free)(void*, size_t) = default_os_free;
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include "simde/x86/avx2.h"
-#include "simde/x86/avx512.h"
-#include "simde/x86/avx512/cmpeq.h"
-#include "simde/x86/avx512/loadu.h"
-#include "simde/x86/avx512/setzero.h"
-#include "simde/x86/sse2.h"
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
@@ -186,30 +181,6 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
         }
         return (size_t)(end - p);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
-        constexpr unsigned LANES = 64 / Bytes;
-        while (((uintptr_t)x & 63u) && x < end) {
-            if (*x == 0) return (size_t)(x - p);
-            ++x;
-        }
-        const simde__m512i vz = simde_mm512_setzero_si512();
-        for (; x + LANES <= end; x += LANES) {
-            simde__m512i v = simde_mm512_loadu_si512((const void*)x);
-            uint64_t m;
-            if constexpr (Bytes == 1)
-                m = simde_mm512_cmpeq_epi8_mask(v, vz);
-            else if constexpr (Bytes == 2)
-                m = simde_mm512_cmpeq_epu16_mask(v, vz);
-            else if constexpr (Bytes == 4)
-                m = simde_mm512_cmpeq_epi32_mask(v, vz);
-            else
-                m = simde_mm512_cmpeq_epi64_mask(v, vz);
-            if (m) {
-                unsigned idx = TZCNT64(m);
-                return (size_t)((x - p) + idx);
-            }
-        }
-#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)x & 31u) && x < end) {
             if (*x == 0) return (size_t)(x - p);
@@ -233,31 +204,6 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
                 return (size_t)((x - p) + idx / Bytes);
             }
         }
-#else
-        constexpr unsigned LANES = 16 / Bytes;
-        while (((uintptr_t)x & 15u) && x < end) {
-            if (*x == 0) return (size_t)(x - p);
-            ++x;
-        }
-        const simde__m128i vz = simde_mm_setzero_si128();
-        for (; x + LANES <= end; x += LANES) {
-            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
-            int m;
-            if constexpr (Bytes == 1)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-            else if constexpr (Bytes == 2)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
-            else if constexpr (Bytes == 4)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
-            else
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi64(v, vz));
-            m = compressMask16<Bytes>(m);
-            if (m) {
-                unsigned idx = TZCNT32((unsigned)m);
-                return (size_t)((x - p) + idx / Bytes);
-            }
-        }
-#endif
         while (x < end) {
             if (*x == 0) return (size_t)(x - p);
             ++x;
@@ -278,33 +224,6 @@ static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
         }
         return (size_t)(p - base + 1);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
-        constexpr unsigned LANES = 64 / Bytes;
-        while (((uintptr_t)(x - (LANES - 1)) & 63u) && x >= base) {
-            if (*x == 0) return (size_t)(p - x);
-            --x;
-        }
-        const simde__m512i vz = simde_mm512_setzero_si512();
-        while (x + 1 >= base + LANES) {
-            const CellT* blk = x - (LANES - 1);
-            simde__m512i v = simde_mm512_loadu_si512((const void*)blk);
-            uint64_t m;
-            if constexpr (Bytes == 1)
-                m = simde_mm512_cmpeq_epi8_mask(v, vz);
-            else if constexpr (Bytes == 2)
-                m = simde_mm512_cmpeq_epu16_mask(v, vz);
-            else if constexpr (Bytes == 4)
-                m = simde_mm512_cmpeq_epi32_mask(v, vz);
-            else
-                m = simde_mm512_cmpeq_epi64_mask(v, vz);
-            if (m) {
-                unsigned bit = 63u - (unsigned)LZCNT64(m);
-                unsigned lane = bit;
-                return (size_t)(p - (blk + lane));
-            }
-            x -= LANES;
-        }
-#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
             if (*x == 0) return (size_t)(p - x);
@@ -331,35 +250,6 @@ static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
             }
             x -= LANES;
         }
-#else
-        constexpr unsigned LANES = 16 / Bytes;
-        while (((uintptr_t)(x - (LANES - 1)) & 15u) && x >= base) {
-            if (*x == 0) return (size_t)(p - x);
-            --x;
-        }
-        const simde__m128i vz = simde_mm_setzero_si128();
-        while (x + 1 >= base + LANES) {
-            const CellT* blk = x - (LANES - 1);
-            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
-            int m;
-            if constexpr (Bytes == 1)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-            else if constexpr (Bytes == 2)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
-            else if constexpr (Bytes == 4)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
-            else
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi64(v, vz));
-            m = compressMask16<Bytes>(m);
-            unsigned um = (unsigned)m & 0xFFFFu;
-            if (um) {
-                unsigned bit = 31u - (unsigned)LZCNT32(um);
-                unsigned lane = bit / Bytes;
-                return (size_t)(p - (blk + lane));
-            }
-            x -= LANES;
-        }
-#endif
         while (x >= base) {
             if (*x == 0) return (size_t)(p - x);
             --x;
@@ -383,33 +273,6 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
         }
         return (size_t)(end - p);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
-        constexpr unsigned LANES = 64 / Bytes;
-        while (((uintptr_t)x & 63u) && x < end) {
-            if (phase == 0 && *x == 0) return (size_t)(x - p);
-            ++x;
-            phase = (phase + 1) & Mask;
-        }
-        const simde__m512i vz = simde_mm512_setzero_si512();
-        for (; x + LANES <= end; x += LANES) {
-            simde__m512i v = simde_mm512_loadu_si512((const void*)x);
-            uint64_t m;
-            if constexpr (Bytes == 1)
-                m = simde_mm512_cmpeq_epi8_mask(v, vz);
-            else if constexpr (Bytes == 2)
-                m = simde_mm512_cmpeq_epu16_mask(v, vz);
-            else if constexpr (Bytes == 4)
-                m = simde_mm512_cmpeq_epi32_mask(v, vz);
-            else
-                m = simde_mm512_cmpeq_epi64_mask(v, vz);
-            m &= strideMask64<Bytes>(Step, phase);
-            if (m) {
-                unsigned idx = TZCNT64(m);
-                return (size_t)((x - p) + idx);
-            }
-            phase = (phase + LANES) & Mask;
-        }
-#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)x & 31u) && x < end) {
             if (phase == 0 && *x == 0) return (size_t)(x - p);
@@ -436,34 +299,6 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
             }
             phase = (phase + LANES) & Mask;
         }
-#else
-        constexpr unsigned LANES = 16 / Bytes;
-        while (((uintptr_t)x & 15u) && x < end) {
-            if (phase == 0 && *x == 0) return (size_t)(x - p);
-            ++x;
-            phase = (phase + 1) & Mask;
-        }
-        const simde__m128i vz = simde_mm_setzero_si128();
-        for (; x + LANES <= end; x += LANES) {
-            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
-            int m;
-            if constexpr (Bytes == 1)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-            else if constexpr (Bytes == 2)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
-            else if constexpr (Bytes == 4)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
-            else
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi64(v, vz));
-            m = compressMask16<Bytes>(m);
-            m &= (int)strideMask16<Bytes>(Step, phase);
-            if (m) {
-                unsigned idx = TZCNT32((unsigned)m);
-                return (size_t)((x - p) + idx / Bytes);
-            }
-            phase = (phase + LANES) & Mask;
-        }
-#endif
         while (x < end) {
             if (phase == 0 && *x == 0) return (size_t)(x - p);
             ++x;
@@ -488,36 +323,6 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
         }
         return (size_t)(p - base + 1);
     } else {
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
-        constexpr unsigned LANES = 64 / Bytes;
-        while (((uintptr_t)(x - (LANES - 1)) & 63u) && x >= base) {
-            if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
-            --x;
-            phaseAtP = (phaseAtP + Step - 1) & Mask;
-        }
-        const simde__m512i vz = simde_mm512_setzero_si512();
-        while (x + 1 >= base + LANES) {
-            const CellT* blk = x - (LANES - 1);
-            unsigned lane0 = (unsigned)(blk - base) & Mask;
-            simde__m512i v = simde_mm512_loadu_si512((const void*)blk);
-            uint64_t m;
-            if constexpr (Bytes == 1)
-                m = simde_mm512_cmpeq_epi8_mask(v, vz);
-            else if constexpr (Bytes == 2)
-                m = simde_mm512_cmpeq_epu16_mask(v, vz);
-            else if constexpr (Bytes == 4)
-                m = simde_mm512_cmpeq_epi32_mask(v, vz);
-            else
-                m = simde_mm512_cmpeq_epi64_mask(v, vz);
-            m &= strideMask64<Bytes>(Step, lane0);
-            if (m) {
-                unsigned bit = 63u - (unsigned)LZCNT64(m);
-                unsigned lane = bit;
-                return (size_t)(p - (blk + lane));
-            }
-            x -= LANES;
-        }
-#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
             if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
@@ -547,38 +352,6 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
             }
             x -= LANES;
         }
-#else
-        constexpr unsigned LANES = 16 / Bytes;
-        while (((uintptr_t)(x - (LANES - 1)) & 15u) && x >= base) {
-            if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
-            --x;
-            phaseAtP = (phaseAtP + Step - 1) & Mask;
-        }
-        const simde__m128i vz = simde_mm_setzero_si128();
-        while (x + 1 >= base + LANES) {
-            const CellT* blk = x - (LANES - 1);
-            unsigned lane0 = (unsigned)(blk - base) & Mask;
-            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
-            int m;
-            if constexpr (Bytes == 1)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-            else if constexpr (Bytes == 2)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
-            else if constexpr (Bytes == 4)
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
-            else
-                m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi64(v, vz));
-            m = compressMask16<Bytes>(m);
-            m &= (int)strideMask16<Bytes>(Step, lane0);
-            unsigned um = (unsigned)m & 0xFFFFu;
-            if (um) {
-                unsigned bit = 31u - (unsigned)LZCNT32(um);
-                unsigned lane = bit / Bytes;
-                return (size_t)(p - (blk + lane));
-            }
-            x -= LANES;
-        }
-#endif
         while (x >= base) {
             if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
             --x;
@@ -1107,46 +880,6 @@ _MUL_CPY:
             ensure(currentCell, neededIndex);
         }
     }
-#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
-    if constexpr (std::is_same_v<CellT, uint8_t>) {
-        // Attempt to process thirty-two consecutive MUL_CPY instructions at once
-        const instruction* base = insp;
-        bool canSimd = true;
-        for (int i = 1; i < 32; ++i) {
-            if (base[i].jump != &&_MUL_CPY || base[i].offset != base[0].offset ||
-                base[i].data != base[0].data + i) {
-                canSimd = false;
-                break;
-            }
-        }
-        if (canSimd) {
-            if constexpr (Dynamic) {
-                const ptrdiff_t currentCell = cell - cellBase;
-                const ptrdiff_t neededIndex = currentCell + base[31].offset + base[31].data;
-                size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
-                if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
-                    ensure(currentCell, neededIndex);
-                }
-            }
-
-            uint8_t src = *(cell + base[0].offset);
-            uint8_t* dst = cell + base[0].offset + base[0].data;
-            alignas(64) int16_t factors[32];
-            for (int i = 0; i < 32; ++i) factors[i] = base[i].auxData;
-            simde__m512i dstv =
-                simde_mm512_cvtepi8_epi16(simde_mm256_loadu_si256((const simde__m256i*)dst));
-            simde__m512i srcv = simde_mm512_set1_epi16(src);
-            simde__m512i facv = simde_mm512_loadu_si512((const simde__m512i*)factors);
-            simde__m512i prod = simde_mm512_mullo_epi16(srcv, facv);
-            simde__m512i sum = simde_mm512_add_epi16(dstv, prod);
-            sum = simde_mm512_and_si512(sum, simde_mm512_set1_epi16(0xFF));
-            simde__m256i res = simde_mm512_cvtepi16_epi8(sum);
-            simde_mm256_storeu_si256((simde__m256i*)dst, res);
-            insp += 31;  // skip processed instructions
-            LOOP();
-        }
-    }
-#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
     if constexpr (std::is_same_v<CellT, uint8_t>) {
         // Attempt to process sixteen consecutive MUL_CPY instructions at once
         const instruction* base = insp;
@@ -1185,46 +918,6 @@ _MUL_CPY:
             LOOP();
         }
     }
-#elif SIMDE_NATURAL_VECTOR_SIZE_GE(128)
-    if constexpr (std::is_same_v<CellT, uint8_t>) {
-        // Attempt to process eight consecutive MUL_CPY instructions at once
-        const instruction* base = insp;
-        bool canSimd = true;
-        for (int i = 1; i < 8; ++i) {
-            if (base[i].jump != &&_MUL_CPY || base[i].offset != base[0].offset ||
-                base[i].data != base[0].data + i) {
-                canSimd = false;
-                break;
-            }
-        }
-        if (canSimd) {
-            if constexpr (Dynamic) {
-                const ptrdiff_t currentCell = cell - cellBase;
-                const ptrdiff_t neededIndex = currentCell + base[7].offset + base[7].data;
-                size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
-                if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
-                    ensure(currentCell, neededIndex);
-                }
-            }
-
-            uint8_t src = *(cell + base[0].offset);
-            uint8_t* dst = cell + base[0].offset + base[0].data;
-            alignas(16) int16_t factors[8];
-            for (int i = 0; i < 8; ++i) factors[i] = base[i].auxData;
-            simde__m128i dstv = simde_mm_cvtepu8_epi16(
-                simde_mm_loadl_epi64(reinterpret_cast<const simde__m128i*>(dst)));
-            simde__m128i srcv = simde_mm_set1_epi16(src);
-            simde__m128i facv = simde_mm_loadu_si128((const simde__m128i*)factors);
-            simde__m128i prod = simde_mm_mullo_epi16(srcv, facv);
-            simde__m128i sum = simde_mm_add_epi16(dstv, prod);
-            sum = simde_mm_and_si128(sum, simde_mm_set1_epi16(0xFF));
-            simde__m128i res = simde_mm_packus_epi16(sum, simde_mm_setzero_si128());
-            simde_mm_storel_epi64((simde__m128i*)dst, res);
-            insp += 7;  // skip processed instructions
-            LOOP();
-        }
-    }
-#endif
     OFFCELLP() += OFFCELL() * insp->auxData;
     LOOP();
 
