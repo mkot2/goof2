@@ -68,11 +68,21 @@ void append_lines(std::vector<std::string>& log, const std::string& text) {
 }
 
 std::string render(Term::Window& scr, const std::vector<std::string>& log, const std::string& input,
-                   size_t cellptr, uint8_t cellval, std::size_t log_height) {
+                   size_t cellptr, uint8_t cellval) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
     scr.clear();
 
+    const std::size_t prompt_width = 2;
+    const std::size_t wrap = cols > prompt_width ? cols - prompt_width : 0;
+    std::vector<std::string> lines;
+    for (std::size_t pos = 0; pos < input.size(); pos += wrap) {
+        lines.push_back(input.substr(pos, wrap));
+    }
+    if (lines.empty()) lines.push_back("");
+
+    const std::size_t input_lines = lines.size();
+    const std::size_t log_height = rows > (1 + input_lines) ? rows - (1 + input_lines) : 0;
     std::size_t start = log.size() > log_height ? log.size() - log_height : 0;
     for (std::size_t i = 0; i < log_height && (start + i) < log.size(); ++i) {
         const std::string& line = log[start + i];
@@ -82,14 +92,12 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
         }
     }
 
-    std::string in = input;
-    std::size_t max_input = cols > 3 ? cols - 3 : 0;
-    if (in.size() > max_input) {
-        in = in.substr(in.size() - max_input);
+    for (std::size_t i = 0; i < input_lines; ++i) {
+        std::string prompt_line = (i == 0 ? "$ " : "  ") + lines[i];
+        std::size_t row = log_height + 1 + i;
+        scr.print_str(1, row, prompt_line);
+        highlight_bf(scr, 3, row, lines[i]);
     }
-    std::string prompt_plain = "$ " + in;
-    scr.print_str(1, rows - 1, prompt_plain);
-    highlight_bf(scr, 3, rows - 1, in);
 
     std::string status = "ptr: " + std::to_string(cellptr) + " val: " + std::to_string(+cellval);
     if (status.size() < cols)
@@ -100,7 +108,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     scr.fill_fg(1, rows, cols, 1, Term::Color::Name::Black);
     scr.print_str(1, rows, status);
 
-    scr.set_cursor_pos(std::min(prompt_plain.size() + 1, cols), rows - 1);
+    scr.set_cursor_pos(std::min(prompt_width + lines.back().size(), cols), rows - 1);
     return scr.render(1, 1, true);
 }
 }  // namespace
@@ -111,24 +119,18 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
                               Term::Option::Raw);
     Term::Screen term_size = Term::screen_size();
     Term::Window scr(term_size);
-    std::size_t log_height = term_size.rows() > 2 ? term_size.rows() - 2 : 0;
     std::vector<std::string> log;
     std::string input;
     std::vector<std::string> history;
     std::size_t history_index = 0;
     bool on = true;
     while (on) {
-        Term::cout << render(scr, log, input, cellptr, cells[cellptr], log_height) << std::flush;
+        Term::cout << render(scr, log, input, cellptr, cells[cellptr]) << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
             term_size = ev;
             scr = Term::Window(term_size);
-            log_height = term_size.rows() > 2 ? term_size.rows() - 2 : 0;
-            std::size_t max_input = term_size.columns() > 3 ? term_size.columns() - 3 : 0;
-            if (input.size() > max_input) {
-                input = input.substr(input.size() - max_input);
-            }
-            Term::cout << render(scr, log, input, cellptr, cells[cellptr], log_height) << std::flush;
+            Term::cout << render(scr, log, input, cellptr, cells[cellptr]) << std::flush;
             continue;
         }
         Term::Key key = ev;
@@ -174,10 +176,7 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
         } else if (key == Term::Key::Backspace) {
             if (!input.empty()) input.pop_back();
         } else if (key.isprint()) {
-            std::size_t max_input = scr.columns() > 3 ? scr.columns() - 3 : 0;
-            if (input.size() < max_input) {
-                input.push_back(static_cast<char>(key.value));
-            }
+            input.push_back(static_cast<char>(key.value));
         }
     }
     Term::terminal.setOptions(Term::Option::Cooked, Term::Option::SignalKeys, Term::Option::Cursor);
