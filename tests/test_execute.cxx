@@ -93,12 +93,30 @@ static void test_boundary_checks() {
 }
 
 template <typename CellT>
+static void test_mul_cpy() {
+    std::vector<CellT> cells(64, 0);
+    size_t ptr = 0;
+    if constexpr (sizeof(CellT) <= 2) {
+        run<CellT>("++++[->+>+>+>+>+>+>+>+>+>+>+>+>+>+>+>+<<<<<<<<<<<<<<<<]", cells, ptr);
+        for (int i = 1; i <= 16; ++i) assert(cells[i] == 4);
+    } else if constexpr (sizeof(CellT) == 4) {
+        run<CellT>("++++[->+>+>+>+>+>+>+>+<<<<<<<<]", cells, ptr);
+        for (int i = 1; i <= 8; ++i) assert(cells[i] == 4);
+    } else {
+        run<CellT>("++++[->+>+>+>+<<<<]", cells, ptr);
+        for (int i = 1; i <= 4; ++i) assert(cells[i] == 4);
+    }
+    assert(cells[0] == 0);
+}
+
+template <typename CellT>
 static void run_tests() {
     test_loops<CellT>();
     test_io<CellT>();
     test_wrapping<CellT>();
     test_eof_behavior<CellT>();
     test_boundary_checks<CellT>();
+    test_mul_cpy<CellT>();
 }
 
 int main() {
