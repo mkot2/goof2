@@ -243,8 +243,11 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
         if (ev.type() == Term::Event::Type::Mouse) {
             Term::Mouse m = ev;
             if (m.is(Term::Button::Type::Left, Term::Button::Action::Pressed)) {
-                std::size_t row = m.row();
-                std::size_t col = m.column();
+                // cpp-terminal reports mouse coordinates starting at 0 on some
+                // platforms. Convert to 1-based coordinates to match the
+                // window API used throughout the REPL.
+                std::size_t row = m.row() + 1;
+                std::size_t col = m.column() + 1;
                 if (menuState == MenuState::CellWidth && row == scr.rows() - 2) {
                     if (col >= menuBounds.cw8Start && col <= menuBounds.cw8End) {
                         cfg.cellWidth = 8;
