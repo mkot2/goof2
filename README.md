@@ -1,5 +1,5 @@
 # goof2
-![Lines of Code](https://img.shields.io/tokei/lines/github/goof2/goof2?label=lines%20of%20code)
+![Lines of Code](https://tokei.rs/b1/github/mkot2/goof2?category=code)
 
 An all-in-one Brainfuck development tool/VM
 
