@@ -17,6 +17,19 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__unix__) || defined(__APPLE__)
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
+#if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
+#define BFVMCPP_HAS_OS_VM 1
+#else
+#define BFVMCPP_HAS_OS_VM 0
+#endif
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -462,7 +475,7 @@ static void regex_replace_inplace(std::string& str, const std::regex& re, Callba
     str = std::move(result);
 }
 
-enum class MemoryModel { Contiguous, Paged, Fibonacci };
+enum class MemoryModel { Contiguous, Paged, Fibonacci, OSBacked };
 
 template <typename CellT, bool Dynamic, bool Term>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
@@ -692,9 +705,36 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         }
     }
 
-    auto cell = cells.data() + cellPtr;
     auto insp = instructions.data();
-    auto cellBase = cells.data();
+    CellT* cellBase = cells.data();
+    CellT* cell = cellBase + cellPtr;
+    size_t osSize = cells.size();
+#if BFVMCPP_HAS_OS_VM
+    if (model == MemoryModel::OSBacked) {
+#ifdef _WIN32
+        CellT* osMem = static_cast<CellT*>(VirtualAlloc(nullptr, osSize * sizeof(CellT),
+                                                        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (osMem) {
+            std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
+            cellBase = osMem;
+            cell = cellBase + cellPtr;
+        } else {
+            model = MemoryModel::Contiguous;
+        }
+#else
+        void* ptr = mmap(nullptr, osSize * sizeof(CellT), PROT_READ | PROT_WRITE,
+                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (ptr != MAP_FAILED) {
+            CellT* osMem = static_cast<CellT*>(ptr);
+            std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
+            cellBase = osMem;
+            cell = cellBase + cellPtr;
+        } else {
+            model = MemoryModel::Contiguous;
+        }
+#endif
+    }
+#endif
 
     std::array<char, 1024> buffer = {0};
 
@@ -703,6 +743,36 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         size_t needed = static_cast<size_t>(neededIndex + 1);
         switch (model) {
+            case MemoryModel::OSBacked: {
+#if BFVMCPP_HAS_OS_VM
+                size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+                if (newSize > osSize) {
+#ifdef _WIN32
+                    CellT* newMem =
+                        static_cast<CellT*>(VirtualAlloc(nullptr, newSize * sizeof(CellT),
+                                                         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                    if (!newMem) throw std::bad_alloc();
+#else
+                    void* nptr = mmap(nullptr, newSize * sizeof(CellT), PROT_READ | PROT_WRITE,
+                                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                    if (nptr == MAP_FAILED) throw std::bad_alloc();
+                    CellT* newMem = static_cast<CellT*>(nptr);
+#endif
+                    std::memcpy(newMem, cellBase, osSize * sizeof(CellT));
+#ifdef _WIN32
+                    VirtualFree(cellBase, 0, MEM_RELEASE);
+#else
+                    munmap(cellBase, osSize * sizeof(CellT));
+#endif
+                    cellBase = newMem;
+                    osSize = newSize;
+                }
+                break;
+#else
+                while (cells.size() < needed) cells.resize(cells.size() * 2);
+                break;
+#endif
+            }
             case MemoryModel::Paged: {
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
                 if (newSize > cells.size()) cells.resize(newSize);
@@ -721,7 +791,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 while (cells.size() < needed) cells.resize(cells.size() * 2);
                 break;
         }
-        cellBase = cells.data();
+        if (model != MemoryModel::OSBacked) cellBase = cells.data();
         cell = cellBase + currentCell;
     };
 
@@ -733,13 +803,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     goto * insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
-#define EXPAND_IF_NEEDED()                                         \
-    if (insp->offset > 0) {                                        \
-        const ptrdiff_t currentCell = cell - cellBase;             \
-        const ptrdiff_t neededIndex = currentCell + insp->offset;  \
-        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) { \
-            ensure(currentCell, neededIndex);                      \
-        }                                                          \
+#define EXPAND_IF_NEEDED()                                                           \
+    if (insp->offset > 0) {                                                          \
+        const ptrdiff_t currentCell = cell - cellBase;                               \
+        const ptrdiff_t neededIndex = currentCell + insp->offset;                    \
+        size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size()); \
+        if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {                      \
+            ensure(currentCell, neededIndex);                                        \
+        }                                                                            \
     }
 #define OFFCELL() *(cell + insp->offset)
 #define OFFCELLP() *(cell + insp->offset + insp->data)
@@ -933,8 +1004,21 @@ _SCN_LFT: {
     }
 }
 
-_END:
-    cellPtr = cell - cellBase;
+_END: {
+    ptrdiff_t finalIndex = cell - cellBase;
+#if BFVMCPP_HAS_OS_VM
+    if (model == MemoryModel::OSBacked && cellBase != cells.data()) {
+        cells.assign(cellBase, cellBase + osSize);
+#ifdef _WIN32
+        VirtualFree(cellBase, 0, MEM_RELEASE);
+#else
+        munmap(cellBase, osSize * sizeof(CellT));
+#endif
+        cellBase = cells.data();
+    }
+#endif
+    cellPtr = finalIndex;
+}
     return 0;
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -948,10 +1032,16 @@ int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& co
     int ret = 0;
     MemoryModel model = MemoryModel::Contiguous;
     // Heuristic: small tapes use contiguous doubling, medium tapes use
-    // Fibonacci growth to trade memory for fewer reallocations, and very
-    // large tapes switch to fixed-size paged allocation.
+    // Fibonacci growth to trade memory for fewer reallocations, large tapes
+    // switch to fixed-size paged allocation, and very large tapes use
+    // OS-backed virtual memory when available.
     if (dynamicSize) {
-        if (cells.size() > (1u << 24))
+#if BFVMCPP_HAS_OS_VM
+        if (cells.size() > (1u << 28))
+            model = MemoryModel::OSBacked;
+        else
+#endif
+            if (cells.size() > (1u << 24))
             model = MemoryModel::Paged;
         else if (cells.size() > (1u << 16))
             model = MemoryModel::Fibonacci;

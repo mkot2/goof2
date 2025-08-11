@@ -49,6 +49,18 @@ cells at startup:
 ./goof --cw 16 program.bf
 ```
 
+## Memory models
+
+The virtual machine grows its cell tape using several strategies:
+
+- **Contiguous** doubles the allocation each time more space is needed.
+- **Fibonacci** expands according to the Fibonacci sequence to balance
+  memory usage against allocation frequency.
+- **Paged** adds memory in fixed 64 KB pages.
+- **OS-backed** reserves memory from the operating system using virtual
+  memory facilities. This model is used only when such APIs are available
+  and otherwise falls back to the contiguous model.
+
 ## License
 
 This project is licensed under the terms of the GNU Affero General Public License v3.0 or later.
