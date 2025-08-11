@@ -22,51 +22,6 @@
 #include "cpp-terminal/style.hpp"
 #include "repl.hxx"
 
-void dumpMemory(const std::vector<uint8_t>& cells, size_t cellPtr, std::ostream& out) {
-    if (cells.empty()) {
-        out << "Memory dump:" << '\n' << "<empty>" << std::endl;
-        return;
-    }
-    size_t lastNonEmpty = cells.size() - 1;
-    while (lastNonEmpty > cellPtr && lastNonEmpty > 0 && !cells[lastNonEmpty]) {
-        --lastNonEmpty;
-    }
-    out << "Memory dump:" << '\n'
-        << Term::Style::Underline
-        << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |"
-        << Term::Style::Reset << std::endl;
-    size_t end = std::max(lastNonEmpty, std::min(cellPtr, cells.size() - 1));
-    for (size_t i = 0, row = 0; i <= end; ++i) {
-        if (i % 10 == 0) {
-            if (row) out << std::endl;
-            out << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
-            row += 10;
-        }
-        out << (i == cellPtr ? Term::color_fg(Term::Color::Name::Green)
-                              : Term::color_fg(Term::Color::Name::Default))
-            << +cells[i] << Term::color_fg(Term::Color::Name::Default)
-            << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
-    }
-    out << Term::Style::Reset << std::endl;
-}
-
-void executeExcept(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                   int eof, bool dynamicSize, bool term) {
-    int ret = bfvmcpp::execute(cells, cellPtr, code, optimize, eof, dynamicSize, term);
-    switch (ret) {
-        case 1:
-            std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                      << Term::color_fg(Term::Color::Name::Default)
-                      << " Unmatched close bracket";
-            break;
-        case 2:
-            std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                      << Term::color_fg(Term::Color::Name::Default)
-                      << " Unmatched open bracket";
-            break;
-    }
-}
-
 int main(int argc, char* argv[]) {
     argh::parser cmdl(argc, argv, argh::parser::PREFER_PARAM_FOR_UNREG_OPTION);
 
@@ -80,6 +35,8 @@ int main(int argc, char* argv[]) {
     cmdl("eof", 0) >> eof;
     int tsArg = 0;
     cmdl("ts", 30000) >> tsArg;
+    int cwArg = 8;
+    cmdl("cw", 8) >> cwArg;
     if (tsArg <= 0) {
         std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
                   << Term::color_fg(Term::Color::Name::Default)
@@ -87,32 +44,52 @@ int main(int argc, char* argv[]) {
         tsArg = 30000;
     }
     size_t ts = static_cast<size_t>(tsArg);
-
     size_t cellPtr = 0;
-    std::vector<uint8_t> cells;
-    cells.assign(ts, 0);
 
-    if (help) {
-        std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
-    } else if (!filename.empty()) {
-        std::ifstream in(filename, std::ios::binary);
-        if (!in.is_open()) {
-            std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                      << Term::color_fg(Term::Color::Name::Default)
-                      << " File could not be opened";
-        } else {
-            std::string code((std::istreambuf_iterator<char>(in)),
-                             std::istreambuf_iterator<char>());
-            if (!in && !in.eof()) {
+    auto run = [&](auto dummy) {
+        using CellT = decltype(dummy);
+        std::vector<CellT> cells(ts, 0);
+        if (help) {
+            std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
+            return;  // no execution
+        }
+        if (!filename.empty()) {
+            std::ifstream in(filename, std::ios::binary);
+            if (!in.is_open()) {
                 std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
                           << Term::color_fg(Term::Color::Name::Default)
-                          << " Error while reading file";
+                          << " File could not be opened";
             } else {
-                executeExcept(cells, cellPtr, code, optimize, eof, dynamicSize);
-                if (dumpMemoryFlag) dumpMemory(cells, cellPtr);
+                std::string code((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+                if (!in && !in.eof()) {
+                    std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
+                              << Term::color_fg(Term::Color::Name::Default)
+                              << " Error while reading file";
+                } else {
+                    executeExcept<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize);
+                    if (dumpMemoryFlag) dumpMemory<CellT>(cells, cellPtr);
+                }
             }
+        } else {
+            runRepl<CellT>(cells, cellPtr, ts, optimize, eof, dynamicSize);
         }
-    } else {
-        runRepl(cells, cellPtr, ts, optimize, eof, dynamicSize);
+    };
+
+    switch (cwArg) {
+        case 8:
+            run(uint8_t{});
+            break;
+        case 16:
+            run(uint16_t{});
+            break;
+        case 32:
+            run(uint32_t{});
+            break;
+        default:
+            std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
+                      << Term::color_fg(Term::Color::Name::Default)
+                      << " Unsupported cell width; use 8,16,32" << std::endl;
+            return 1;
     }
 }

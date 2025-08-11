@@ -19,8 +19,15 @@
 #define BOOST_REGEX_MAX_STATE_COUNT 1000000000  // Should be enough to parse anything
 #include <boost/regex.hpp>
 
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
 #include "simde/x86/avx2.h"
 #include "simde/x86/sse2.h"
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #if defined(__GNUC__) || defined(__clang__)
 #define TZCNT32(x) __builtin_ctz((unsigned)(x))
@@ -38,18 +45,66 @@ static inline unsigned LZCNT32(unsigned x) {
 }
 #endif
 
+template <unsigned Bytes>
 static inline uint32_t strideMask32(unsigned step, unsigned phase) {
     uint32_t m = 0;
-    for (unsigned i = 0; i < 32; i++)
-        if (((i + phase) % step) == 0) m |= (1u << i);
+    constexpr unsigned lanes = 32 / Bytes;
+    for (unsigned i = 0; i < lanes; i++) {
+        if (((i + phase) % step) == 0) {
+            unsigned bit = i * Bytes;
+            if constexpr (Bytes == 1)
+                m |= (1u << bit);
+            else if constexpr (Bytes == 2)
+                m |= (3u << bit);
+            else
+                m |= (15u << bit);
+        }
+    }
     return m;
 }
 
+template <unsigned Bytes>
 static inline uint16_t strideMask16(unsigned step, unsigned phase) {
     uint16_t m = 0;
-    for (unsigned i = 0; i < 16; i++)
-        if (((i + phase) % step) == 0) m |= (uint16_t(1) << i);
+    constexpr unsigned lanes = 16 / Bytes;
+    for (unsigned i = 0; i < lanes; i++) {
+        if (((i + phase) % step) == 0) {
+            unsigned bit = i * Bytes;
+            if constexpr (Bytes == 1)
+                m |= (uint16_t(1) << bit);
+            else if constexpr (Bytes == 2)
+                m |= (uint16_t(3) << bit);
+            else
+                m |= (uint16_t(15) << bit);
+        }
+    }
     return m;
+}
+
+template <unsigned Bytes>
+static inline int compressMask32(int m) {
+    if constexpr (Bytes == 1)
+        return m;
+    else if constexpr (Bytes == 2)
+        return ((m >> 1) | m) & 0x55555555;
+    else {
+        m = ((m >> 1) | m);
+        m = ((m >> 2) | m);
+        return m & 0x11111111;
+    }
+}
+
+template <unsigned Bytes>
+static inline int compressMask16(int m) {
+    if constexpr (Bytes == 1)
+        return m;
+    else if constexpr (Bytes == 2)
+        return ((m >> 1) | m) & 0x5555;
+    else {
+        m = ((m >> 1) | m);
+        m = ((m >> 2) | m);
+        return m & 0x1111;
+    }
 }
 
 static inline unsigned posMod(ptrdiff_t x, unsigned m) {
@@ -58,34 +113,52 @@ static inline unsigned posMod(ptrdiff_t x, unsigned m) {
     return (unsigned)r;
 }
 
-static inline size_t simdScan0Fwd(const uint8_t* p, const uint8_t* end) {
-    const uint8_t* x = p;
+template <typename CellT>
+static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+    constexpr unsigned LANES = 32 / Bytes;
     while (((uintptr_t)x & 31u) && x < end) {
         if (*x == 0) return (size_t)(x - p);
         ++x;
     }
     const simde__m256i vz = simde_mm256_setzero_si256();
-    for (; x + 32 <= end; x += 32) {
+    for (; x + LANES <= end; x += LANES) {
         simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)x);
-        int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+        m = compressMask32<Bytes>(m);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
-            return (size_t)((x - p) + idx);
+            return (size_t)((x - p) + idx / Bytes);
         }
     }
 #else
+    constexpr unsigned LANES = 16 / Bytes;
     while (((uintptr_t)x & 15u) && x < end) {
         if (*x == 0) return (size_t)(x - p);
         ++x;
     }
     const simde__m128i vz = simde_mm_setzero_si128();
-    for (; x + 16 <= end; x += 16) {
+    for (; x + LANES <= end; x += LANES) {
         simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
-        int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
+        m = compressMask16<Bytes>(m);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
-            return (size_t)((x - p) + idx);
+            return (size_t)((x - p) + idx / Bytes);
         }
     }
 #endif
@@ -97,39 +170,60 @@ static inline size_t simdScan0Fwd(const uint8_t* p, const uint8_t* end) {
 }
 
 /*** step == 1 backward scan: last zero in [base,p], return distance back ***/
-static inline size_t simdScan0Back(const uint8_t* base, const uint8_t* p) {
-    const uint8_t* x = p;
+template <typename CellT>
+static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
-    while (((uintptr_t)(x - 31) & 31u) && x >= base) {
+    constexpr unsigned LANES = 32 / Bytes;
+    while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
         if (*x == 0) return (size_t)(p - x);
         --x;
     }
     const simde__m256i vz = simde_mm256_setzero_si256();
-    while (x + 1 >= base + 32) {
-        const uint8_t* blk = x - 31;
+    while (x + 1 >= base + LANES) {
+        const CellT* blk = x - (LANES - 1);
         simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
-        int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+        m = compressMask32<Bytes>(m);
         if (m) {
-            unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m);
-            return (size_t)(p - (blk + idx));
+            unsigned bit = 31u - (unsigned)LZCNT32((unsigned)m);
+            unsigned lane = bit / Bytes;
+            return (size_t)(p - (blk + lane));
         }
-        x -= 32;
+        x -= LANES;
     }
 #else
-    while (((uintptr_t)(x - 15) & 15u) && x >= base) {
+    constexpr unsigned LANES = 16 / Bytes;
+    while (((uintptr_t)(x - (LANES - 1)) & 15u) && x >= base) {
         if (*x == 0) return (size_t)(p - x);
         --x;
     }
     const simde__m128i vz = simde_mm_setzero_si128();
-    while (x + 1 >= base + 16) {
-        const uint8_t* blk = x - 15;
+    while (x + 1 >= base + LANES) {
+        const CellT* blk = x - (LANES - 1);
         simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
-        int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-        if (m) {
-            unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m) - 16u;
-            return (size_t)(p - (blk + idx));
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
+        m = compressMask16<Bytes>(m);
+        unsigned um = (unsigned)m & 0xFFFFu;
+        if (um) {
+            unsigned bit = 31u - (unsigned)LZCNT32(um);
+            unsigned lane = bit / Bytes;
+            return (size_t)(p - (blk + lane));
         }
-        x -= 16;
+        x -= LANES;
     }
 #endif
     while (x >= base) {
@@ -140,42 +234,60 @@ static inline size_t simdScan0Back(const uint8_t* base, const uint8_t* p) {
 }
 
 /*** tiny-stride forward scan: step in {2,4,8} ***/
-static inline size_t simdScan0FwdStride(const uint8_t* p, const uint8_t* end, unsigned step,
+template <typename CellT>
+static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsigned step,
                                         unsigned phase) {
-    const uint8_t* x = p;
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+    constexpr unsigned LANES = 32 / Bytes;
     while (((uintptr_t)x & 31u) && x < end) {
         if ((phase % step) == 0 && *x == 0) return (size_t)(x - p);
         ++x;
         if (++phase == step) phase = 0;
     }
     const simde__m256i vz = simde_mm256_setzero_si256();
-    for (; x + 32 <= end; x += 32) {
+    for (; x + LANES <= end; x += LANES) {
         simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)x);
-        int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
-        m &= (int)strideMask32(step, phase);
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+        m = compressMask32<Bytes>(m);
+        m &= (int)strideMask32<Bytes>(step, phase);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
-            return (size_t)((x - p) + idx);
+            return (size_t)((x - p) + idx / Bytes);
         }
-        phase = (phase + 32) % step;
+        phase = (phase + LANES) % step;
     }
 #else
+    constexpr unsigned LANES = 16 / Bytes;
     while (((uintptr_t)x & 15u) && x < end) {
         if ((phase % step) == 0 && *x == 0) return (size_t)(x - p);
         ++x;
         if (++phase == step) phase = 0;
     }
     const simde__m128i vz = simde_mm_setzero_si128();
-    for (; x + 16 <= end; x += 16) {
+    for (; x + LANES <= end; x += LANES) {
         simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
-        int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-        m &= (int)strideMask16(step, phase);
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
+        m = compressMask16<Bytes>(m);
+        m &= (int)strideMask16<Bytes>(step, phase);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
-            return (size_t)((x - p) + idx);
+            return (size_t)((x - p) + idx / Bytes);
         }
-        phase = (phase + 16) % step;
+        phase = (phase + LANES) % step;
     }
 #endif
     while (x < end) {
@@ -187,46 +299,67 @@ static inline size_t simdScan0FwdStride(const uint8_t* p, const uint8_t* end, un
 }
 
 /*** tiny-stride backward scan: step in {2,4,8} ***/
-static inline size_t simdScan0BackStride(const uint8_t* base, const uint8_t* p, unsigned step,
+template <typename CellT>
+static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsigned step,
                                          unsigned phaseAtP) {
-    const uint8_t* x = p;
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
-    while (((uintptr_t)(x - 31) & 31u) && x >= base) {
+    constexpr unsigned LANES = 32 / Bytes;
+    while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
         if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
         --x;
         phaseAtP = (phaseAtP + step - 1) % step;
     }
     const simde__m256i vz = simde_mm256_setzero_si256();
-    while (x + 1 >= base + 32) {
-        const uint8_t* blk = x - 31;
+    while (x + 1 >= base + LANES) {
+        const CellT* blk = x - (LANES - 1);
         unsigned lane0 = posMod((ptrdiff_t)(blk - base), step);
         simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
-        int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
-        m &= (int)strideMask32(step, lane0);
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+        m = compressMask32<Bytes>(m);
+        m &= (int)strideMask32<Bytes>(step, lane0);
         if (m) {
-            unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m);
-            return (size_t)(p - (blk + idx));
+            unsigned bit = 31u - (unsigned)LZCNT32((unsigned)m);
+            unsigned lane = bit / Bytes;
+            return (size_t)(p - (blk + lane));
         }
-        x -= 32;
+        x -= LANES;
     }
 #else
-    while (((uintptr_t)(x - 15) & 15u) && x >= base) {
+    constexpr unsigned LANES = 16 / Bytes;
+    while (((uintptr_t)(x - (LANES - 1)) & 15u) && x >= base) {
         if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
         --x;
         phaseAtP = (phaseAtP + step - 1) % step;
     }
     const simde__m128i vz = simde_mm_setzero_si128();
-    while (x + 1 >= base + 16) {
-        const uint8_t* blk = x - 15;
+    while (x + 1 >= base + LANES) {
+        const CellT* blk = x - (LANES - 1);
         unsigned lane0 = posMod((ptrdiff_t)(blk - base), step);
         simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
-        int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-        m &= (int)strideMask16(step, lane0);
-        if (m) {
-            unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m) - 16u;
-            return (size_t)(p - (blk + idx));
+        int m;
+        if constexpr (Bytes == 1)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
+        else if constexpr (Bytes == 2)
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi16(v, vz));
+        else
+            m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
+        m = compressMask16<Bytes>(m);
+        m &= (int)strideMask16<Bytes>(step, lane0);
+        unsigned um = (unsigned)m & 0xFFFFu;
+        if (um) {
+            unsigned bit = 31u - (unsigned)LZCNT32(um);
+            unsigned lane = bit / Bytes;
+            return (size_t)(p - (blk + lane));
         }
-        x -= 16;
+        x -= LANES;
     }
 #endif
     while (x >= base) {
@@ -240,8 +373,8 @@ static inline size_t simdScan0BackStride(const uint8_t* base, const uint8_t* p, 
 struct instruction {
     const void* jump;
     int32_t data;
-    const int16_t auxData;
-    const int16_t offset;
+    int16_t auxData;
+    int16_t offset;
 };
 
 int32_t fold(std::string_view code, size_t& i, char match) {
@@ -260,9 +393,13 @@ std::string processBalanced(std::string_view s, char no1, char no2) {
 
 enum class MemoryModel { Contiguous, Paged, Fibonacci };
 
-template <bool Dynamic, bool Term>
-int executeImpl(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code, bool optimize,
+template <typename CellT, bool Dynamic, bool Term>
+int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model) {
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
     std::vector<instruction> instructions;
     {
         enum insType {
@@ -360,57 +497,69 @@ int executeImpl(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code,
         int16_t offset = 0;
         bool set = false;
         instructions.reserve(code.length());
+        std::vector<uint8_t> ops;
+        ops.reserve(code.length());
 
-        auto emit = [&](instruction inst) {
+        auto emit = [&](insType op, instruction inst) {
             if (!instructions.empty() && instructions.back().offset == inst.offset) {
-                const void *addSub = jtable[insType::ADD_SUB];
-                const void *setIns = jtable[insType::SET];
-                const void *clrIns = jtable[insType::CLR];
-                auto &last = instructions.back();
-                bool lastIsWrite = last.jump == addSub || last.jump == setIns || last.jump == clrIns;
-                bool newIsWrite = inst.jump == addSub || inst.jump == setIns || inst.jump == clrIns;
+                auto& last = instructions.back();
+                insType lastOp = static_cast<insType>(ops.back());
+                bool lastIsWrite = lastOp == insType::ADD_SUB || lastOp == insType::SET ||
+                                   lastOp == insType::CLR;
+                bool newIsWrite = op == insType::ADD_SUB || op == insType::SET ||
+                                  op == insType::CLR;
                 if (lastIsWrite && newIsWrite) {
-                    if (inst.jump == addSub) {
-                        if (last.jump == addSub) {
+                    if (op == insType::ADD_SUB) {
+                        if (lastOp == insType::ADD_SUB) {
                             last.data += inst.data;
                             return;
-                        } else if (last.jump == setIns) {
-                            last.data = static_cast<uint8_t>(last.data + inst.data);
+                        } else if (lastOp == insType::SET) {
+                            last.data = static_cast<CellT>(last.data + inst.data);
                             return;
-                        } else if (last.jump == clrIns) {
+                        } else if (lastOp == insType::CLR) {
                             instructions.pop_back();
-                            instructions.push_back(instruction{setIns, static_cast<int32_t>(static_cast<uint8_t>(inst.data)), 0, inst.offset});
+                            ops.pop_back();
+                            instructions.push_back(instruction{nullptr,
+                                                              static_cast<int32_t>(
+                                                                  static_cast<CellT>(inst.data)),
+                                                              0, inst.offset});
+                            ops.push_back(static_cast<uint8_t>(insType::SET));
                             return;
                         }
                     } else {
                         instructions.pop_back();
+                        ops.pop_back();
                         instructions.push_back(inst);
+                        ops.push_back(static_cast<uint8_t>(op));
                         return;
                     }
                 }
             }
             instructions.push_back(inst);
+            ops.push_back(static_cast<uint8_t>(op));
         };
 
-#define MOVEOFFSET()                                                                 \
-    if (offset) [[likely]] {                                                         \
-        emit(instruction{jtable[insType::PTR_MOV], offset, 0, 0});                   \
-        offset = 0;                                                                  \
+#define MOVEOFFSET()                                                          \
+    if (offset) [[likely]] {                                                  \
+        emit(insType::PTR_MOV, instruction{nullptr, offset, 0, 0}); \
+        offset = 0;                                                           \
     }
 
         for (size_t i = 0; i < code.length(); i++) {
             switch (code[i]) {
-                case '+':
-                    emit(instruction{jtable[set ? insType::SET : insType::ADD_SUB],
-                                     fold(code, i, '+'), 0, offset});
+                case '+': {
+                    const insType op = set ? insType::SET : insType::ADD_SUB;
+                    emit(op, instruction{nullptr, fold(code, i, '+'), 0, offset});
                     set = false;
                     break;
+                }
                 case '-': {
                     const int32_t folded = -fold(code, i, '-');
-                    emit(instruction{jtable[set ? insType::SET : insType::ADD_SUB],
-                                     set ? static_cast<int32_t>(static_cast<uint8_t>(folded))
-                                         : folded,
-                                     0, offset});
+                    const insType op = set ? insType::SET : insType::ADD_SUB;
+                    emit(op, instruction{nullptr,
+                                         set ? static_cast<int32_t>(static_cast<CellT>(folded))
+                                             : folded,
+                                         0, offset});
                     set = false;
                     break;
                 }
@@ -423,7 +572,7 @@ int executeImpl(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code,
                 case '[':
                     MOVEOFFSET();
                     braceStack.push_back(instructions.size());
-                    emit(instruction{jtable[insType::JMP_ZER], 0, 0, 0});
+                    emit(insType::JMP_ZER, instruction{nullptr, 0, 0, 0});
                     break;
                 case ']': {
                     if (!braceStack.size()) return 1;
@@ -433,41 +582,49 @@ int executeImpl(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code,
                     const int sizeminstart = instructions.size() - start;
                     braceStack.pop_back();
                     instructions[start].data = sizeminstart;
-                    emit(instruction{jtable[insType::JMP_NOT_ZER], sizeminstart, 0, 0});
+                    emit(insType::JMP_NOT_ZER,
+                         instruction{nullptr, sizeminstart, 0, 0});
                     break;
                 }
                 case '.':
-                    emit(instruction{jtable[insType::PUT_CHR], fold(code, i, '.'), 0, offset});
+                    emit(insType::PUT_CHR,
+                         instruction{nullptr, fold(code, i, '.'), 0, offset});
                     break;
                 case ',':
-                    emit(instruction{jtable[insType::RAD_CHR], 0, 0, offset});
+                    emit(insType::RAD_CHR, instruction{nullptr, 0, 0, offset});
                     break;
                 case 'C':
-                    emit(instruction{jtable[insType::CLR], 0, 0, offset});
+                    emit(insType::CLR, instruction{nullptr, 0, 0, offset});
                     break;
                 case 'P':
-                    emit(instruction{jtable[insType::MUL_CPY], copyloopMap[copyloopCounter++],
+                    emit(insType::MUL_CPY,
+                         instruction{nullptr, copyloopMap[copyloopCounter++],
                                      static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
                     break;
                 case 'R':
                     MOVEOFFSET();
-                    emit(instruction{jtable[insType::SCN_RGT], scanloopMap[scanloopCounter++], 0, 0});
+                    emit(insType::SCN_RGT,
+                         instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0});
                     break;
                 case 'L':
                     MOVEOFFSET();
-                    emit(instruction{jtable[insType::SCN_LFT], scanloopMap[scanloopCounter++], 0, 0});
+                    emit(insType::SCN_LFT,
+                         instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0});
                     break;
                 case 'S':
                     set = true;
                     break;
             }
         }
-        MOVEOFFSET()
-        emit(instruction{jtable[insType::END], 0, 0, 0});
+        MOVEOFFSET();
+        emit(insType::END, instruction{nullptr, 0, 0, 0});
 
         if (!braceStack.empty()) return 2;
 
         instructions.shrink_to_fit();
+        for (size_t i = 0; i < instructions.size(); ++i) {
+            instructions[i].jump = jtable[ops[i]];
+        }
     }
 
     auto cell = cells.data() + cellPtr;
@@ -513,13 +670,13 @@ int executeImpl(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code,
     goto * insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
-#define EXPAND_IF_NEEDED()                                                       \
-    if (insp->offset > 0) {                                                      \
-        const ptrdiff_t currentCell = cell - cellBase;                           \
-        const ptrdiff_t neededIndex = currentCell + insp->offset;                \
-        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) {               \
-            ensure(currentCell, neededIndex);                                    \
-        }                                                                        \
+#define EXPAND_IF_NEEDED()                                         \
+    if (insp->offset > 0) {                                        \
+        const ptrdiff_t currentCell = cell - cellBase;             \
+        const ptrdiff_t neededIndex = currentCell + insp->offset;  \
+        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) { \
+            ensure(currentCell, neededIndex);                      \
+        }                                                          \
     }
 #define OFFCELL() *(cell + insp->offset)
 #define OFFCELLP() *(cell + insp->offset + insp->data)
@@ -557,7 +714,7 @@ _JMP_NOT_ZER:
     LOOP();
 
 _PUT_CHR:
-    std::memset(buffer.data(), OFFCELL(), buffer.size());
+    std::memset(buffer.data(), static_cast<unsigned char>(OFFCELL()), buffer.size());
 
     size_t left = static_cast<size_t>(insp->data);
     while (left) {
@@ -577,13 +734,13 @@ _RAD_CHR:
                 OFFCELL() = 0;
                 break;
             case 2:
-                OFFCELL() = 255;
+                OFFCELL() = static_cast<CellT>(255);
                 break;
             default:
                 __builtin_unreachable();
         }
     } else {
-        OFFCELL() = static_cast<uint8_t>(in);
+        OFFCELL() = static_cast<CellT>(in);
     }
     LOOP();
 
@@ -609,13 +766,13 @@ _SCN_RGT: {
     }
 
     for (;;) {
-        uint8_t* const end = cells.data() + cells.size();
+        CellT* const end = cells.data() + cells.size();
         size_t off;
         if (step == 1) {
-            off = simdScan0Fwd(cell, end);
+            off = simdScan0Fwd<CellT>(cell, end);
         } else if (step == 2 || step == 4 || step == 8) {
             const unsigned phase = posMod(static_cast<ptrdiff_t>(cell - cellBase), step);
-            off = simdScan0FwdStride(cell, end, step, phase);
+            off = simdScan0FwdStride<CellT>(cell, end, step, phase);
         } else {
             // scalar fallback for arbitrary step
             off = 0;
@@ -648,12 +805,12 @@ _SCN_LFT: {
     }
 
     if (step == 1) {
-        size_t back = simdScan0Back(cellBase, cell);
+        size_t back = simdScan0Back<CellT>(cellBase, cell);
         cell -= back;
         LOOP();
     } else if (step == 2 || step == 4 || step == 8) {
         const unsigned phaseAtP = posMod(static_cast<ptrdiff_t>(cell - cellBase), step);
-        size_t back = simdScan0BackStride(cellBase, cell, step, phaseAtP);
+        size_t back = simdScan0BackStride<CellT>(cellBase, cell, step, phaseAtP);
         cell -= back;
         LOOP();
     } else {
@@ -669,9 +826,14 @@ _SCN_LFT: {
 _END:
     cellPtr = cell - cellBase;
     return 0;
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 }
 
-int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code, bool optimize,
+template <typename CellT>
+int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                      int eof, bool dynamicSize, bool term) {
     int ret = 0;
     MemoryModel model = MemoryModel::Contiguous;
@@ -685,11 +847,18 @@ int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& 
             model = MemoryModel::Fibonacci;
     }
     if (dynamicSize) {
-        term ? ret = executeImpl<true, true>(cells, cellPtr, code, optimize, eof, model)
-             : ret = executeImpl<true, false>(cells, cellPtr, code, optimize, eof, model);
+        term ? ret = executeImpl<CellT, true, true>(cells, cellPtr, code, optimize, eof, model)
+             : ret = executeImpl<CellT, true, false>(cells, cellPtr, code, optimize, eof, model);
     } else {
-        term ? ret = executeImpl<false, true>(cells, cellPtr, code, optimize, eof, model)
-             : ret = executeImpl<false, false>(cells, cellPtr, code, optimize, eof, model);
+        term ? ret = executeImpl<CellT, false, true>(cells, cellPtr, code, optimize, eof, model)
+             : ret = executeImpl<CellT, false, false>(cells, cellPtr, code, optimize, eof, model);
     }
     return ret;
 }
+
+template int bfvmcpp::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int,
+                                       bool, bool);
+template int bfvmcpp::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
+                                        bool, bool);
+template int bfvmcpp::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
+                                        bool, bool);
