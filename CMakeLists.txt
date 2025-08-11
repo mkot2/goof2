@@ -4,6 +4,14 @@ project(bfvmcpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Link the C++ runtime statically on Windows to avoid missing procedure
+# entry point errors when running the prebuilt executable.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+elseif(MINGW)
+    add_link_options(-static)
+endif()
+
 option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 
 if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
