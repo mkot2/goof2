@@ -7,6 +7,7 @@
 #include "repl.hxx"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 #include "cpp-terminal/color.hpp"
@@ -67,16 +68,31 @@ void appendLines(std::vector<std::string>& log, const std::string& text) {
     }
 }
 
+void appendInputLines(std::vector<std::string>& log, const std::string& input) {
+    std::istringstream iss(input);
+    bool first = true;
+    for (std::string line; std::getline(iss, line);) {
+        log.push_back((first ? "$ " : "  ") + line);
+        first = false;
+    }
+    if (first) {
+        log.push_back("$ ");
+    }
+}
+
+enum class MenuState { None, TapeSize, EOFVal, CellWidth };
+
 template <typename CellT>
 std::string render(Term::Window& scr, const std::vector<std::string>& log, const std::string& input,
-                   size_t cellPtr, CellT cellVal) {
+                   size_t cellPtr, CellT cellVal, const ReplConfig& cfg, MenuState menuState,
+                   const std::string& menuInput) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
     scr.clear();
 
     const std::size_t promptWidth = 2;
     const std::size_t wrap = cols > promptWidth ? cols - promptWidth : 1;
-    const std::size_t maxInputLines = rows > 1 ? rows - 1 : 1;
+    const std::size_t maxInputLines = rows > 2 ? rows - 2 : 1;
     const std::size_t maxChars = wrap * maxInputLines;
     std::size_t startPos = input.size() > maxChars ? input.size() - maxChars : 0;
     std::vector<std::string> lines;
@@ -86,12 +102,12 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     if (lines.empty()) lines.push_back("");
 
     const std::size_t inputLines = lines.size();
-    const std::size_t logHeight = rows > (1 + inputLines) ? rows - (1 + inputLines) : 0;
+    const std::size_t logHeight = rows > (2 + inputLines) ? rows - (2 + inputLines) : 0;
     std::size_t start = log.size() > logHeight ? log.size() - logHeight : 0;
     for (std::size_t i = 0; i < logHeight && (start + i) < log.size(); ++i) {
         const std::string& line = log[start + i];
         scr.print_str(1, 1 + i, line);
-        if (line.rfind("$ ", 0) == 0) {
+        if (line.rfind("$ ", 0) == 0 || line.rfind("  ", 0) == 0) {
             highlightBf(scr, 3, 1 + i, line.substr(2));
         }
     }
@@ -102,6 +118,19 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
         scr.print_str(1, row, promptLine);
         highlightBf(scr, 3, row, lines[i]);
     }
+
+    std::string menu =
+        "[F1]opt:" + std::string(cfg.optimize ? "on" : "off") +
+        " [F2]dyn:" + std::string(cfg.dynamicSize ? "on" : "off") + " [F3]ts:" +
+        (menuState == MenuState::TapeSize ? ">" + menuInput : std::to_string(cfg.tapeSize)) +
+        " [F4]eof:" + (menuState == MenuState::EOFVal ? ">" + menuInput : std::to_string(cfg.eof)) +
+        " [F5]cw:" +
+        (menuState == MenuState::CellWidth ? ">" + menuInput : std::to_string(cfg.cellWidth));
+    if (menu.size() < cols)
+        menu += std::string(cols - menu.size(), ' ');
+    else
+        menu = menu.substr(0, cols);
+    scr.print_str(1, rows - 1, menu);
 
     std::string status = "ptr: " + std::to_string(cellPtr) + " val: " + std::to_string(+cellVal);
     if (status.size() < cols)
@@ -120,8 +149,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
 }  // namespace
 
 template <typename CellT>
-void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimize, int eof,
-             bool dynamicSize) {
+int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     Term::terminal.setOptions(Term::Option::ClearScreen, Term::Option::NoSignalKeys,
                               Term::Option::Raw);
     Term::Screen termSize = Term::screen_size();
@@ -130,29 +158,102 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimiz
     std::string input;
     std::vector<std::string> history;
     std::size_t historyIndex = 0;
+    MenuState menuState = MenuState::None;
+    std::string menuInput;
+    int newCw = 0;
     bool on = true;
+    auto resetContext = [&]() {
+        cellPtr = 0;
+        std::vector<CellT> newCells(cfg.tapeSize, 0);
+        cells.swap(newCells);
+        log.clear();
+        input.clear();
+        history.clear();
+        historyIndex = 0;
+    };
     while (on) {
-        Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
+        Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr], cfg, menuState,
+                                    menuInput)
+                   << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
             termSize = ev;
             scr = Term::Window(termSize);
-            Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
+            Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr], cfg, menuState,
+                                        menuInput)
+                       << std::flush;
             continue;
         }
         Term::Key key = ev;
+        if (menuState != MenuState::None) {
+            if (key == Term::Key::Esc) {
+                menuState = MenuState::None;
+                menuInput.clear();
+            } else if (key == Term::Key::Enter) {
+                try {
+                    if (menuState == MenuState::TapeSize) {
+                        std::size_t val = std::stoull(menuInput);
+                        if (val > 0) {
+                            std::size_t bytes = val * sizeof(CellT);
+                            if (bytes > GOOF2_TAPE_WARN_BYTES) {
+                                log.push_back("WARNING: tape alloc ~" +
+                                              std::to_string(bytes >> 20) +
+                                              " MiB may exhaust memory");
+                            }
+                            cfg.tapeSize = val;
+                            resetContext();
+                        }
+                    } else if (menuState == MenuState::EOFVal) {
+                        int val = std::stoi(menuInput);
+                        cfg.eof = val;
+                        resetContext();
+                    } else if (menuState == MenuState::CellWidth) {
+                        int val = std::stoi(menuInput);
+                        if (val == 8 || val == 16 || val == 32 || val == 64) {
+                            cfg.cellWidth = val;
+                            on = false;
+                            newCw = val;
+                        }
+                    }
+                } catch (...) {
+                }
+                menuState = MenuState::None;
+                menuInput.clear();
+            } else if (key == Term::Key::Backspace) {
+                if (!menuInput.empty()) menuInput.pop_back();
+            } else if (key.isprint() && std::isdigit(static_cast<unsigned char>(key.value))) {
+                menuInput.push_back(static_cast<char>(key.value));
+            }
+            continue;
+        }
+
         if (key == Term::Key::Ctrl_C || key == Term::Key::Esc) {
             on = false;
+        } else if (key == Term::Key::F1) {
+            cfg.optimize = !cfg.optimize;
+            resetContext();
+        } else if (key == Term::Key::F2) {
+            cfg.dynamicSize = !cfg.dynamicSize;
+            resetContext();
+        } else if (key == Term::Key::F3) {
+            menuState = MenuState::TapeSize;
+            menuInput.clear();
+        } else if (key == Term::Key::F4) {
+            menuState = MenuState::EOFVal;
+            menuInput.clear();
+        } else if (key == Term::Key::F5) {
+            menuState = MenuState::CellWidth;
+            menuInput.clear();
         } else if (key == Term::Key::Enter) {
             if (!input.empty()) {
-                log.push_back("$ " + input);
+                appendInputLines(log, input);
+                history.push_back(input);
+                historyIndex = history.size();
             }
             if (input == "exit" || input == "quit") {
                 on = false;
             } else if (input == "clear") {
-                cellPtr = 0;
-                cells.assign(ts, 0);
-                log.clear();
+                resetContext();
             } else if (input == "dump") {
                 std::ostringstream oss;
                 dumpMemory<CellT>(cells, cellPtr, oss);
@@ -162,7 +263,8 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimiz
             } else if (!input.empty()) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
-                executeExcept<CellT>(cells, cellPtr, input, optimize, eof, dynamicSize, true);
+                executeExcept<CellT>(cells, cellPtr, input, cfg.optimize, cfg.eof, cfg.dynamicSize,
+                                     true);
                 std::cout.rdbuf(oldbuf);
                 appendLines(log, oss.str());
             }
@@ -187,9 +289,10 @@ void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimiz
         }
     }
     Term::terminal.setOptions(Term::Option::Cooked, Term::Option::SignalKeys, Term::Option::Cursor);
+    return newCw;
 }
 
-template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, bool, int, bool);
-template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, bool, int, bool);
-template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, bool, int, bool);
-template void runRepl<uint64_t>(std::vector<uint64_t>&, size_t&, size_t, bool, int, bool);
+template int runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, ReplConfig&);
+template int runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, ReplConfig&);
+template int runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, ReplConfig&);
+template int runRepl<uint64_t>(std::vector<uint64_t>&, size_t&, ReplConfig&);

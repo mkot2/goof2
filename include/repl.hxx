@@ -15,9 +15,16 @@
 #include "cpp-terminal/style.hpp"
 #include "vm.hxx"
 
+struct ReplConfig {
+    bool optimize;
+    bool dynamicSize;
+    int eof;
+    size_t tapeSize;
+    int cellWidth;
+};
+
 template <typename CellT>
-void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimize, int eof,
-             bool dynamicSize);
+int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg);
 
 template <typename CellT>
 inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
@@ -66,7 +73,7 @@ inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::strin
     }
 }
 
-extern template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, bool, int, bool);
-extern template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, bool, int, bool);
-extern template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, bool, int, bool);
-extern template void runRepl<uint64_t>(std::vector<uint64_t>&, size_t&, size_t, bool, int, bool);
+extern template int runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, ReplConfig&);
+extern template int runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, ReplConfig&);
+extern template int runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, ReplConfig&);
+extern template int runRepl<uint64_t>(std::vector<uint64_t>&, size_t&, ReplConfig&);

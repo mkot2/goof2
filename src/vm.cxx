@@ -740,8 +740,66 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
     constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
     size_t fibA = cells.size(), fibB = cells.size();
+    auto chooseModel = [&](size_t size) {
+#if GOOF2_HAS_OS_VM
+        if (size > (1u << 28)) return MemoryModel::OSBacked;
+#endif
+        if (size > (1u << 24)) return MemoryModel::Paged;
+        if (size > (1u << 16)) return MemoryModel::Fibonacci;
+        return MemoryModel::Contiguous;
+    };
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         size_t needed = static_cast<size_t>(neededIndex + 1);
+        MemoryModel target = chooseModel(needed);
+        if (target != model) {
+            if (target == MemoryModel::OSBacked) {
+#if GOOF2_HAS_OS_VM
+                size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+#ifdef _WIN32
+                CellT* newMem = static_cast<CellT*>(VirtualAlloc(
+                    nullptr, newSize * sizeof(CellT), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                if (!newMem) throw std::bad_alloc();
+#else
+                void* nptr = mmap(nullptr, newSize * sizeof(CellT), PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                if (nptr == MAP_FAILED) throw std::bad_alloc();
+                CellT* newMem = static_cast<CellT*>(nptr);
+#endif
+                std::memcpy(
+                    newMem, cellBase,
+                    (model == MemoryModel::OSBacked ? osSize : cells.size()) * sizeof(CellT));
+                if (model == MemoryModel::OSBacked) {
+#ifdef _WIN32
+                    VirtualFree(cellBase, 0, MEM_RELEASE);
+#else
+                    munmap(cellBase, osSize * sizeof(CellT));
+#endif
+                } else {
+                    std::vector<CellT>().swap(cells);
+                }
+                cellBase = newMem;
+                osSize = newSize;
+                model = MemoryModel::OSBacked;
+                fibA = fibB = osSize;
+#endif
+            } else {
+                if (model == MemoryModel::OSBacked) {
+                    size_t oldSize = osSize;
+                    cells.resize(oldSize);
+                    std::memcpy(cells.data(), cellBase, oldSize * sizeof(CellT));
+#if GOOF2_HAS_OS_VM
+#ifdef _WIN32
+                    VirtualFree(cellBase, 0, MEM_RELEASE);
+#else
+                    munmap(cellBase, osSize * sizeof(CellT));
+#endif
+#endif
+                    cellBase = cells.data();
+                }
+                model = target;
+                if (model == MemoryModel::Fibonacci) fibA = fibB = cells.size();
+            }
+        }
         switch (model) {
             case MemoryModel::OSBacked: {
 #if GOOF2_HAS_OS_VM
@@ -787,9 +845,10 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 }
                 break;
             }
-            default:
+            default: {
                 while (cells.size() < needed) cells.resize(cells.size() * 2);
                 break;
+            }
         }
         if (model != MemoryModel::OSBacked) cellBase = cells.data();
         cell = cellBase + currentCell;

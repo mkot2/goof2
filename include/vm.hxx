@@ -9,6 +9,7 @@
 #define GOOF2_DYNAMIC_CELLS_SIZE 1
 #define GOOF2_OPTIMIZE 1
 #define GOOF2_DEFAULT_SAVE_STATE 0
+#define GOOF2_TAPE_WARN_BYTES (1ull << 30)  // 1 GiB
 
 #include <cstdint>
 #include <string>
