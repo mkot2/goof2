@@ -67,7 +67,6 @@ The virtual machine grows its cell tape using several strategies:
 
 This project is licensed under the terms of the GNU Affero General Public License v3.0 or later.
 It includes third-party components under separate licenses:
-- argh (BSD-3-Clause), included via git submodule; see `argh/LICENSE`
 - cpp-terminal (MIT), included via git submodule; see `cpp-terminal/LICENSE`
 - simde (MIT and CC0), included via git submodule; see `simde/COPYING`
 

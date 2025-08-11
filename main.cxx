@@ -10,9 +10,9 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "argh.h"
 #include "include/vm.hxx"
 #ifdef GOOF2_ENABLE_REPL
 #include "cpp-terminal/color.hpp"
@@ -35,21 +35,54 @@ static void enable_vt_mode() {
 #endif
 #endif
 
+namespace {
+struct CmdArgs {
+    std::string filename;
+    bool dumpMemory = false;
+    bool help = false;
+    bool optimize = true;
+    bool dynamicTape = false;
+    int eof = 0;
+    std::size_t tapeSize = 30000;
+    int cellWidth = 8;
+};
+
+CmdArgs parseArgs(int argc, char* argv[]) {
+    CmdArgs args;
+    for (int i = 1; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "-i" && i + 1 < argc) {
+            args.filename = argv[++i];
+        } else if (arg == "-dm") {
+            args.dumpMemory = true;
+        } else if (arg == "-h") {
+            args.help = true;
+        } else if (arg == "-nopt") {
+            args.optimize = false;
+        } else if (arg == "-dts") {
+            args.dynamicTape = true;
+        } else if (arg == "-eof" && i + 1 < argc) {
+            args.eof = std::stoi(argv[++i]);
+        } else if (arg == "-ts" && i + 1 < argc) {
+            args.tapeSize = static_cast<std::size_t>(std::stoull(argv[++i]));
+        } else if (arg == "-cw" && i + 1 < argc) {
+            args.cellWidth = std::stoi(argv[++i]);
+        }
+    }
+    return args;
+}
+}  // namespace
+
 #ifdef GOOF2_ENABLE_REPL
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
     enable_vt_mode();
 #endif
-    argh::parser cmdl(argc, argv, argh::parser::PREFER_PARAM_FOR_UNREG_OPTION);
-
-    std::string filename;
-    cmdl("i", "") >> filename;
-    const bool dumpMemoryFlag = cmdl["dm"];
-    const bool help = cmdl["h"];
-    ReplConfig cfg{!cmdl["nopt"], cmdl["dts"], 0, 30000, 8};
-    cmdl("eof", 0) >> cfg.eof;
-    cmdl("ts", 30000) >> cfg.tapeSize;
-    cmdl("cw", 8) >> cfg.cellWidth;
+    CmdArgs opts = parseArgs(argc, argv);
+    std::string filename = opts.filename;
+    const bool dumpMemoryFlag = opts.dumpMemory;
+    const bool help = opts.help;
+    ReplConfig cfg{opts.optimize, opts.dynamicTape, opts.eof, opts.tapeSize, opts.cellWidth};
     if (cfg.tapeSize == 0) {
         std::cout << Term::color_fg(Term::Color::Name::Red)
                   << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
@@ -193,20 +226,16 @@ void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
 }  // namespace
 
 int main(int argc, char* argv[]) {
-    argh::parser cmdl(argc, argv, argh::parser::PREFER_PARAM_FOR_UNREG_OPTION);
+    CmdArgs opts = parseArgs(argc, argv);
 
-    std::string filename;
-    cmdl("i", "") >> filename;
-    const bool dumpMemoryFlag = cmdl["dm"];
-    const bool help = cmdl["h"];
-    bool optimize = !cmdl["nopt"];
-    bool dynamicSize = cmdl["dts"];
-    int eof = 0;
-    std::size_t tapeSize = 30000;
-    int cellWidth = 8;
-    cmdl("eof", 0) >> eof;
-    cmdl("ts", 30000) >> tapeSize;
-    cmdl("cw", 8) >> cellWidth;
+    std::string filename = opts.filename;
+    const bool dumpMemoryFlag = opts.dumpMemory;
+    const bool help = opts.help;
+    bool optimize = opts.optimize;
+    bool dynamicSize = opts.dynamicTape;
+    int eof = opts.eof;
+    std::size_t tapeSize = opts.tapeSize;
+    int cellWidth = opts.cellWidth;
     if (tapeSize == 0) {
         std::cout << "ERROR: Tape size must be positive; using default 30000" << std::endl;
         tapeSize = 30000;
