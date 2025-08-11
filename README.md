@@ -25,6 +25,21 @@ cmake --build build --config Release
 ANSI escape sequences are enabled automatically on startup so colored
 output works in both PowerShell and `cmd.exe`.
 
+## Code coverage
+
+Builds can optionally collect code coverage information using `gcov` and
+`lcov`. First ensure `lcov` is installed on the system (for example,
+`apt-get install lcov` on Debian-based systems) and then configure the
+project with coverage enabled:
+
+```sh
+cmake -S . -B build -DBUILD_COVERAGE=ON
+cmake --build build --target coverage
+```
+
+An HTML report will be generated in `build/coverage`. Open
+`build/coverage/index.html` in a browser to explore the coverage data.
+
 ## Usage
 
 The VM supports selectable cell widths. Use the `--cw` option to choose 8-, 16- or 32-bit
