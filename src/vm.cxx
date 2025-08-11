@@ -7,7 +7,6 @@
 #include "vm.hxx"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -881,8 +880,6 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     }
 #endif
 
-    std::array<char, 1024> buffer = {0};
-
     constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
     size_t fibA = cells.size(), fibB = cells.size();
     auto chooseModel = [&](size_t size) {
@@ -1058,13 +1055,19 @@ _JMP_NOT_ZER:
     LOOP();
 
 _PUT_CHR: {
-    std::memset(buffer.data(), static_cast<unsigned char>(OFFCELL()), buffer.size());
-
-    size_t left = static_cast<size_t>(insp->data);
-    while (left) {
-        const size_t chunk = std::min(left, buffer.size());
-        std::cout.write(buffer.data(), chunk);
-        left -= chunk;
+    const unsigned char ch = static_cast<unsigned char>(OFFCELL());
+    size_t count = static_cast<size_t>(insp->data);
+    if (count) {
+        char buf[256];
+        std::memset(buf, static_cast<int>(ch), sizeof(buf));
+        while (count >= sizeof(buf)) {
+            std::cout.write(buf, sizeof(buf));
+            count -= sizeof(buf);
+        }
+        if (count) {
+            std::cout.write(buf, count);
+        }
+        std::cout.flush();
     }
     LOOP();
 }
