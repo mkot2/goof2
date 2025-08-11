@@ -20,10 +20,10 @@ add_subdirectory(regex-develop)
 
 set(PROJECT_SOURCES
     main.cxx
-    src/vm.cpp
-    include/vm.hpp
-    src/repl.cpp
-    include/repl.hpp
+    src/vm.cxx
+    include/vm.hxx
+    src/repl.cxx
+    include/repl.hxx
 )
 
 add_executable(bfvmcpp

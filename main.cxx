@@ -17,10 +17,10 @@
 #include <vector>
 
 #include "argh.hxx"
-#include "include/vm.hpp"
+#include "include/vm.hxx"
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/style.hpp"
-#include "repl.hpp"
+#include "repl.hxx"
 
 void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr, std::ostream& out) {
     if (cells.empty()) {
