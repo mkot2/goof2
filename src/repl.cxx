@@ -83,10 +83,22 @@ void appendInputLines(std::vector<std::string>& log, const std::string& input) {
 
 enum class MenuState { None, TapeSize, EOFVal, CellWidth };
 
+struct MenuBounds {
+    std::size_t optStart = 0, optEnd = 0;
+    std::size_t dynStart = 0, dynEnd = 0;
+    std::size_t tsStart = 0, tsEnd = 0;
+    std::size_t eofStart = 0, eofEnd = 0;
+    std::size_t cwStart = 0, cwEnd = 0;
+    std::size_t cw8Start = 0, cw8End = 0;
+    std::size_t cw16Start = 0, cw16End = 0;
+    std::size_t cw32Start = 0, cw32End = 0;
+    std::size_t cw64Start = 0, cw64End = 0;
+};
+
 template <typename CellT>
 std::string render(Term::Window& scr, const std::vector<std::string>& log, const std::string& input,
                    size_t cellPtr, CellT cellVal, const ReplConfig& cfg, MenuState menuState,
-                   const std::string& menuInput) {
+                   const std::string& menuInput, MenuBounds& bounds) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
     scr.clear();
@@ -120,18 +132,60 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
         highlightBf(scr, 3, row, lines[i]);
     }
 
-    std::string menu =
-        "[F1]opt:" + std::string(cfg.optimize ? "on" : "off") +
-        " [F2]dyn:" + std::string(cfg.dynamicSize ? "on" : "off") + " [F3]ts:" +
-        (menuState == MenuState::TapeSize ? ">" + menuInput : std::to_string(cfg.tapeSize)) +
-        " [F4]eof:" + (menuState == MenuState::EOFVal ? ">" + menuInput : std::to_string(cfg.eof)) +
-        " [F5]cw:" +
-        (menuState == MenuState::CellWidth ? ">" + menuInput : std::to_string(cfg.cellWidth));
+    std::string menu;
+    auto addSegment = [&](const std::string& seg, std::size_t& start, std::size_t& end) {
+        if (!menu.empty()) menu.push_back(' ');
+        start = menu.size() + 1;
+        menu += seg;
+        end = menu.size();
+    };
+    addSegment("[opt:" + std::string(cfg.optimize ? "on" : "off") + "]", bounds.optStart,
+               bounds.optEnd);
+    addSegment("[dyn:" + std::string(cfg.dynamicSize ? "on" : "off") + "]", bounds.dynStart,
+               bounds.dynEnd);
+    addSegment(
+        "[ts:" +
+            (menuState == MenuState::TapeSize ? ">" + menuInput : std::to_string(cfg.tapeSize)) +
+            "]",
+        bounds.tsStart, bounds.tsEnd);
+    addSegment(
+        "[eof:" + (menuState == MenuState::EOFVal ? ">" + menuInput : std::to_string(cfg.eof)) +
+            "]",
+        bounds.eofStart, bounds.eofEnd);
+    addSegment(
+        "[cw:" +
+            (menuState == MenuState::CellWidth ? ">" + menuInput : std::to_string(cfg.cellWidth)) +
+            "]",
+        bounds.cwStart, bounds.cwEnd);
     if (menu.size() < cols)
         menu += std::string(cols - menu.size(), ' ');
     else
         menu = menu.substr(0, cols);
     scr.print_str(1, rows - 1, menu);
+
+    if (menuState == MenuState::CellWidth) {
+        std::string cwMenu;
+        auto addCw = [&](const std::string& seg, std::size_t& start, std::size_t& end) {
+            if (!cwMenu.empty()) cwMenu.push_back(' ');
+            start = cwMenu.size() + 1;
+            cwMenu += seg;
+            end = cwMenu.size();
+        };
+        addCw("[8]", bounds.cw8Start, bounds.cw8End);
+        addCw("[16]", bounds.cw16Start, bounds.cw16End);
+        addCw("[32]", bounds.cw32Start, bounds.cw32End);
+        addCw("[64]", bounds.cw64Start, bounds.cw64End);
+        if (cwMenu.size() < cols)
+            cwMenu += std::string(cols - cwMenu.size(), ' ');
+        else
+            cwMenu = cwMenu.substr(0, cols);
+        scr.print_str(1, rows - 2, cwMenu);
+    } else {
+        bounds.cw8Start = bounds.cw8End = 0;
+        bounds.cw16Start = bounds.cw16End = 0;
+        bounds.cw32Start = bounds.cw32End = 0;
+        bounds.cw64Start = bounds.cw64End = 0;
+    }
 
     std::string status = "ptr: " + std::to_string(cellPtr) + " val: " + std::to_string(+cellVal);
     if (status.size() < cols)
@@ -161,6 +215,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     std::size_t historyIndex = 0;
     MenuState menuState = MenuState::None;
     std::string menuInput;
+    MenuBounds menuBounds;
     int newCw = 0;
     bool on = true;
     auto resetContext = [&]() {
@@ -174,15 +229,64 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     };
     while (on) {
         Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr], cfg, menuState,
-                                    menuInput)
+                                    menuInput, menuBounds)
                    << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
             termSize = ev;
             scr = Term::Window(termSize);
             Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr], cfg, menuState,
-                                        menuInput)
+                                        menuInput, menuBounds)
                        << std::flush;
+            continue;
+        }
+        if (ev.type() == Term::Event::Type::Mouse) {
+            Term::Mouse m = ev;
+            if (m.is(Term::Button::Type::Left, Term::Button::Action::Pressed)) {
+                std::size_t row = m.row();
+                std::size_t col = m.column();
+                if (menuState == MenuState::CellWidth && row == scr.rows() - 2) {
+                    if (col >= menuBounds.cw8Start && col <= menuBounds.cw8End) {
+                        cfg.cellWidth = 8;
+                        on = false;
+                        newCw = 8;
+                    } else if (col >= menuBounds.cw16Start && col <= menuBounds.cw16End) {
+                        cfg.cellWidth = 16;
+                        on = false;
+                        newCw = 16;
+                    } else if (col >= menuBounds.cw32Start && col <= menuBounds.cw32End) {
+                        cfg.cellWidth = 32;
+                        on = false;
+                        newCw = 32;
+                    } else if (col >= menuBounds.cw64Start && col <= menuBounds.cw64End) {
+                        cfg.cellWidth = 64;
+                        on = false;
+                        newCw = 64;
+                    }
+                    menuState = MenuState::None;
+                    menuInput.clear();
+                } else if (row == scr.rows() - 1) {
+                    if (col >= menuBounds.optStart && col <= menuBounds.optEnd) {
+                        cfg.optimize = !cfg.optimize;
+                        resetContext();
+                    } else if (col >= menuBounds.dynStart && col <= menuBounds.dynEnd) {
+                        cfg.dynamicSize = !cfg.dynamicSize;
+                        resetContext();
+                    } else if (col >= menuBounds.tsStart && col <= menuBounds.tsEnd) {
+                        menuState = MenuState::TapeSize;
+                        menuInput.clear();
+                    } else if (col >= menuBounds.eofStart && col <= menuBounds.eofEnd) {
+                        menuState = MenuState::EOFVal;
+                        menuInput.clear();
+                    } else if (col >= menuBounds.cwStart && col <= menuBounds.cwEnd) {
+                        menuState = MenuState::CellWidth;
+                        menuInput.clear();
+                    }
+                } else if (menuState == MenuState::CellWidth) {
+                    menuState = MenuState::None;
+                    menuInput.clear();
+                }
+            }
             continue;
         }
         Term::Key key = ev;
@@ -230,21 +334,6 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
 
         if (key == Term::Key::Ctrl_C || key == Term::Key::Esc) {
             on = false;
-        } else if (key == Term::Key::F1) {
-            cfg.optimize = !cfg.optimize;
-            resetContext();
-        } else if (key == Term::Key::F2) {
-            cfg.dynamicSize = !cfg.dynamicSize;
-            resetContext();
-        } else if (key == Term::Key::F3) {
-            menuState = MenuState::TapeSize;
-            menuInput.clear();
-        } else if (key == Term::Key::F4) {
-            menuState = MenuState::EOFVal;
-            menuInput.clear();
-        } else if (key == Term::Key::F5) {
-            menuState = MenuState::CellWidth;
-            menuInput.clear();
         } else if (key == Term::Key::Enter) {
             if (!input.empty()) {
                 appendInputLines(log, input);
