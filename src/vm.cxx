@@ -15,9 +15,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-#define BOOST_REGEX_MAX_STATE_COUNT 1000000000  // Should be enough to parse anything
-#include <boost/regex.hpp>
+#include <regex>
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
@@ -391,6 +389,21 @@ std::string processBalanced(std::string_view s, char no1, char no2) {
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
 
+template <typename Callback>
+static void regex_replace_inplace(std::string& str, const std::regex& re, Callback cb) {
+    std::string result;
+    auto begin = str.cbegin();
+    auto end = str.cend();
+    std::smatch match;
+    while (std::regex_search(begin, end, match, re)) {
+        result.append(begin, match[0].first);
+        result += cb(match);
+        begin = match[0].second;
+    }
+    result.append(begin, end);
+    str = std::move(result);
+}
+
 enum class MemoryModel { Contiguous, Paged, Fibonacci };
 
 template <typename CellT, bool Dynamic, bool Term>
@@ -429,69 +442,68 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
 
-        if (optimize) {
-            code = boost::regex_replace(code, boost::basic_regex(R"([^\+\-\>\<\.\,\]\[])"), "");
+            if (optimize) {
+                code = std::regex_replace(code, std::regex(R"([^+\-<>\.,\]\[])") , "");
 
-            code = boost::regex_replace(code, boost::basic_regex(R"([+-]{2,})"), [&](auto& what) {
-                return processBalanced(what.str(), '+', '-');
-            });
-            code = boost::regex_replace(code, boost::basic_regex(R"([><]{2,})"), [&](auto& what) {
-                return processBalanced(what.str(), '>', '<');
-            });
+                regex_replace_inplace(code, std::regex(R"([+-]{2,})"), [&](const std::smatch& what) {
+                    return processBalanced(what.str(), '+', '-');
+                });
+                regex_replace_inplace(code, std::regex(R"([><]{2,})"), [&](const std::smatch& what) {
+                    return processBalanced(what.str(), '>', '<');
+                });
 
-            code = boost::regex_replace(code, boost::basic_regex(R"([+-]*(?:\[[+-]+\])+)"), "C");
+                code = std::regex_replace(code, std::regex(R"([+-]*(?:\[[+-]+\])+)"), "C");
 
-            code =
-                boost::regex_replace(code, boost::basic_regex(R"(\[>+\]|\[<+\])"), [&](auto& what) {
+                regex_replace_inplace(code, std::regex(R"(\[>+\]|\[<+\])"), [&](const std::smatch& what) {
                     const auto current = what.str();
                     const auto count = std::count(current.begin(), current.end(), '>') -
                                        std::count(current.begin(), current.end(), '<');
                     scanloopMap.push_back(std::abs(count));
                     if (count > 0)
-                        return "R";
+                        return std::string("R");
                     else
-                        return "L";
+                        return std::string("L");
                 });
 
-            code = boost::regex_replace(code, boost::basic_regex(R"([+\-C]+,)"), ",");
+                code = std::regex_replace(code, std::regex(R"([+\-C]+,)"), ",");
 
-            code = boost::regex_replace(
-                code,
-                boost::basic_regex(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])"),
-                [&](auto& what) {
-                    int numOfCopies = 0;
-                    int offset = 0;
-                    const std::string whole = what.str();
-                    const std::string current = what[1].str() + what[2].str();
+                regex_replace_inplace(
+                    code,
+                    std::regex(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])"),
+                    [&](const std::smatch& what) {
+                        int numOfCopies = 0;
+                        int offset = 0;
+                        const std::string whole = what.str();
+                        const std::string current = what[1].str() + what[2].str();
 
-                    if (std::count(whole.begin(), whole.end(), '>') -
-                            std::count(whole.begin(), whole.end(), '<') ==
-                        0) {
-                        boost::match_results<std::string::const_iterator> whatL;
-                        auto start = current.cbegin();
-                        auto end = current.cend();
-                        while (boost::regex_search(start, end, whatL,
-                                                   boost::basic_regex(R"([<>]+[+-]+)"))) {
-                            offset += -std::count(whatL[0].begin(), whatL[0].end(), '<') +
-                                      std::count(whatL[0].begin(), whatL[0].end(), '>');
-                            copyloopMap.push_back(offset);
-                            copyloopMap.push_back(
-                                std::count(whatL[0].begin(), whatL[0].end(), '+') -
-                                std::count(whatL[0].begin(), whatL[0].end(), '-'));
-                            numOfCopies++;
-                            start = whatL[0].second;
+                        if (std::count(whole.begin(), whole.end(), '>') -
+                                std::count(whole.begin(), whole.end(), '<') ==
+                            0) {
+                            std::smatch whatL;
+                            auto start = current.cbegin();
+                            auto end = current.cend();
+                            std::regex inner(R"([<>]+[+-]+)");
+                            while (std::regex_search(start, end, whatL, inner)) {
+                                offset += -std::count(whatL[0].first, whatL[0].second, '<') +
+                                          std::count(whatL[0].first, whatL[0].second, '>');
+                                copyloopMap.push_back(offset);
+                                copyloopMap.push_back(
+                                    std::count(whatL[0].first, whatL[0].second, '+') -
+                                    std::count(whatL[0].first, whatL[0].second, '-'));
+                                numOfCopies++;
+                                start = whatL[0].second;
+                            }
+                            return std::string(numOfCopies, 'P') + "C";
+                        } else {
+                            return whole;
                         }
-                        return std::string(numOfCopies, 'P') + "C";
-                    } else {
-                        return whole;
-                    }
-                });
+                    });
 
-            if constexpr (!Term)
-                code = boost::regex_replace(code,
-                                            boost::basic_regex(R"((?:^|(?<=[RL\]])|C+)([\+\-]+))"),
-                                            "S${1}");  // We can't really assume in term
-        }
+                if constexpr (!Term)
+                    code = std::regex_replace(code,
+                                              std::regex(R"((?:^|([RL\]]))C*([\+\-]+))"),
+                                              "$1S$2");  // We can't really assume in term
+            }
 
         std::vector<size_t> braceStack;
         int16_t offset = 0;
