@@ -21,7 +21,7 @@
 #include "cpp-terminal/terminal.hpp"
 #include "cpp-terminal/terminfo.hpp"
 #include "cpp-terminal/window.hpp"
-#include "include/vm.hxx"
+#include "vm.hxx"
 
 namespace {
 bool supportsColor() {

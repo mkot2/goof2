@@ -13,7 +13,7 @@
 #include <string_view>
 #include <vector>
 
-#include "include/vm.hxx"
+#include "vm.hxx"
 #ifdef GOOF2_ENABLE_REPL
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/style.hpp"
