@@ -19,8 +19,15 @@
 #define BOOST_REGEX_MAX_STATE_COUNT 1000000000  // Should be enough to parse anything
 #include <boost/regex.hpp>
 
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
 #include "simde/x86/avx2.h"
 #include "simde/x86/sse2.h"
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #if defined(__GNUC__) || defined(__clang__)
 #define TZCNT32(x) __builtin_ctz((unsigned)(x))
@@ -389,6 +396,10 @@ enum class MemoryModel { Contiguous, Paged, Fibonacci };
 template <typename CellT, bool Dynamic, bool Term>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model) {
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
     std::vector<instruction> instructions;
     {
         enum insType {
@@ -794,6 +805,10 @@ _SCN_LFT: {
 _END:
     cellPtr = cell - cellBase;
     return 0;
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 }
 
 template <typename CellT>
