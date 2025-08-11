@@ -35,6 +35,7 @@
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include "simde/x86/avx2.h"
+#include "simde/x86/avx512.h"
 #include "simde/x86/sse2.h"
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
@@ -952,7 +953,133 @@ _CLR:
     LOOP();
 
 _MUL_CPY:
-    if constexpr (Dynamic) EXPAND_IF_NEEDED()
+    if constexpr (Dynamic) {
+        const ptrdiff_t currentCell = cell - cellBase;
+        const ptrdiff_t neededIndex =
+            currentCell + insp->offset + insp->data;  // ensure target exists
+        size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
+        if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+            ensure(currentCell, neededIndex);
+        }
+    }
+#if SIMDE_NATURAL_VECTOR_SIZE_GE(512)
+    if constexpr (std::is_same_v<CellT, uint8_t>) {
+        // Attempt to process thirty-two consecutive MUL_CPY instructions at once
+        const instruction* base = insp;
+        bool canSimd = true;
+        for (int i = 1; i < 32; ++i) {
+            if (base[i].jump != &&_MUL_CPY || base[i].offset != base[0].offset ||
+                base[i].data != base[0].data + i) {
+                canSimd = false;
+                break;
+            }
+        }
+        if (canSimd) {
+            if constexpr (Dynamic) {
+                const ptrdiff_t currentCell = cell - cellBase;
+                const ptrdiff_t neededIndex = currentCell + base[31].offset + base[31].data;
+                size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
+                if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+                    ensure(currentCell, neededIndex);
+                }
+            }
+
+            uint8_t src = *(cell + base[0].offset);
+            uint8_t* dst = cell + base[0].offset + base[0].data;
+            alignas(64) int16_t factors[32];
+            for (int i = 0; i < 32; ++i) factors[i] = base[i].auxData;
+            simde__m512i dstv =
+                simde_mm512_cvtepi8_epi16(simde_mm256_loadu_si256((const simde__m256i*)dst));
+            simde__m512i srcv = simde_mm512_set1_epi16(src);
+            simde__m512i facv = simde_mm512_loadu_si512((const simde__m512i*)factors);
+            simde__m512i prod = simde_mm512_mullo_epi16(srcv, facv);
+            simde__m512i sum = simde_mm512_add_epi16(dstv, prod);
+            sum = simde_mm512_and_si512(sum, simde_mm512_set1_epi16(0xFF));
+            simde__m256i res = simde_mm512_cvtepi16_epi8(sum);
+            simde_mm256_storeu_si256((simde__m256i*)dst, res);
+            insp += 31;  // skip processed instructions
+            LOOP();
+        }
+    }
+#elif SIMDE_NATURAL_VECTOR_SIZE_GE(256)
+    if constexpr (std::is_same_v<CellT, uint8_t>) {
+        // Attempt to process sixteen consecutive MUL_CPY instructions at once
+        const instruction* base = insp;
+        bool canSimd = true;
+        for (int i = 1; i < 16; ++i) {
+            if (base[i].jump != &&_MUL_CPY || base[i].offset != base[0].offset ||
+                base[i].data != base[0].data + i) {
+                canSimd = false;
+                break;
+            }
+        }
+        if (canSimd) {
+            if constexpr (Dynamic) {
+                const ptrdiff_t currentCell = cell - cellBase;
+                const ptrdiff_t neededIndex = currentCell + base[15].offset + base[15].data;
+                size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
+                if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+                    ensure(currentCell, neededIndex);
+                }
+            }
+
+            uint8_t src = *(cell + base[0].offset);
+            uint8_t* dst = cell + base[0].offset + base[0].data;
+            alignas(32) int16_t factors[16];
+            for (int i = 0; i < 16; ++i) factors[i] = base[i].auxData;
+            simde__m256i dstv =
+                simde_mm256_cvtepu8_epi16(simde_mm_loadu_si128((const simde__m128i*)dst));
+            simde__m256i srcv = simde_mm256_set1_epi16(src);
+            simde__m256i facv = simde_mm256_loadu_si256((const simde__m256i*)factors);
+            simde__m256i prod = simde_mm256_mullo_epi16(srcv, facv);
+            simde__m256i sum = simde_mm256_add_epi16(dstv, prod);
+            sum = simde_mm256_and_si256(sum, simde_mm256_set1_epi16(0xFF));
+            simde__m256i packed = simde_mm256_packus_epi16(sum, simde_mm256_setzero_si256());
+            simde_mm_storeu_si128((simde__m128i*)dst, simde_mm256_castsi256_si128(packed));
+            insp += 15;  // skip processed instructions
+            LOOP();
+        }
+    }
+#elif SIMDE_NATURAL_VECTOR_SIZE_GE(128)
+    if constexpr (std::is_same_v<CellT, uint8_t>) {
+        // Attempt to process eight consecutive MUL_CPY instructions at once
+        const instruction* base = insp;
+        bool canSimd = true;
+        for (int i = 1; i < 8; ++i) {
+            if (base[i].jump != &&_MUL_CPY || base[i].offset != base[0].offset ||
+                base[i].data != base[0].data + i) {
+                canSimd = false;
+                break;
+            }
+        }
+        if (canSimd) {
+            if constexpr (Dynamic) {
+                const ptrdiff_t currentCell = cell - cellBase;
+                const ptrdiff_t neededIndex = currentCell + base[7].offset + base[7].data;
+                size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
+                if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+                    ensure(currentCell, neededIndex);
+                }
+            }
+
+            uint8_t src = *(cell + base[0].offset);
+            uint8_t* dst = cell + base[0].offset + base[0].data;
+            alignas(16) int16_t factors[8];
+            for (int i = 0; i < 8; ++i) factors[i] = base[i].auxData;
+            simde__m128i dstv = simde_mm_cvtepu8_epi16(
+                simde_mm_loadl_epi64(reinterpret_cast<const simde__m128i*>(dst)));
+            simde__m128i srcv = simde_mm_set1_epi16(src);
+            simde__m128i facv = simde_mm_loadu_si128((const simde__m128i*)factors);
+            simde__m128i prod = simde_mm_mullo_epi16(srcv, facv);
+            simde__m128i sum = simde_mm_add_epi16(dstv, prod);
+            sum = simde_mm_and_si128(sum, simde_mm_set1_epi16(0xFF));
+            simde__m128i res = simde_mm_packus_epi16(sum, simde_mm_setzero_si128());
+            simde_mm_storel_epi64((simde__m128i*)dst, res);
+            insp += 7;  // skip processed instructions
+            LOOP();
+        }
+    }
+#endif
     OFFCELLP() += OFFCELL() * insp->auxData;
     LOOP();
 
