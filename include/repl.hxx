@@ -5,6 +5,7 @@
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
+#ifdef GOOF2_ENABLE_REPL
 #include <cstdint>
 #include <iostream>
 #include <ostream>
@@ -77,3 +78,4 @@ extern template int runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, ReplConfig&
 extern template int runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, ReplConfig&);
 extern template int runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, ReplConfig&);
 extern template int runRepl<uint64_t>(std::vector<uint64_t>&, size_t&, ReplConfig&);
+#endif  // GOOF2_ENABLE_REPL

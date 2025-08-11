@@ -10,9 +10,11 @@ target_include_directories(vm_execute_tests PRIVATE
 )
 
 target_link_libraries(vm_execute_tests PRIVATE
-    cpp-terminal::cpp-terminal
     Warnings
 )
+if(GOOF2_ENABLE_REPL)
+    target_link_libraries(vm_execute_tests PRIVATE cpp-terminal::cpp-terminal)
+endif()
 
 add_test(NAME vm_execute_tests COMMAND vm_execute_tests)
 
@@ -28,6 +30,8 @@ target_include_directories(vm_execute_fuzz PRIVATE
 )
 
 target_link_libraries(vm_execute_fuzz PRIVATE
-    cpp-terminal::cpp-terminal
     Warnings
 )
+if(GOOF2_ENABLE_REPL)
+    target_link_libraries(vm_execute_fuzz PRIVATE cpp-terminal::cpp-terminal)
+endif()
