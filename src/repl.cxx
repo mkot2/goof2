@@ -22,15 +22,15 @@
 #include "include/vm.hxx"
 
 namespace {
-bool supports_color() {
+bool supportsColor() {
     using Term::Terminfo;
     return Terminfo::get(Terminfo::Bool::ControlSequences) &&
            Terminfo::getColorMode() != Terminfo::ColorMode::NoColor &&
            Terminfo::getColorMode() != Terminfo::ColorMode::Unset;
 }
 
-void highlight_bf(Term::Window& scr, std::size_t x, std::size_t y, const std::string& code) {
-    if (!supports_color()) return;
+void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, const std::string& code) {
+    if (!supportsColor()) return;
     const std::size_t cols = scr.columns();
     for (std::size_t i = 0; i < code.size() && (x + i) <= cols; ++i) {
         Term::Color::Name color;
@@ -60,7 +60,7 @@ void highlight_bf(Term::Window& scr, std::size_t x, std::size_t y, const std::st
         }
     }
 }
-void append_lines(std::vector<std::string>& log, const std::string& text) {
+void appendLines(std::vector<std::string>& log, const std::string& text) {
     std::istringstream iss(text);
     for (std::string line; std::getline(iss, line);) {
         log.push_back(line);
@@ -68,38 +68,38 @@ void append_lines(std::vector<std::string>& log, const std::string& text) {
 }
 
 std::string render(Term::Window& scr, const std::vector<std::string>& log, const std::string& input,
-                   size_t cellptr, uint8_t cellval) {
+                   size_t cellPtr, uint8_t cellVal) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
     scr.clear();
 
-    const std::size_t prompt_width = 2;
-    const std::size_t wrap = cols > prompt_width ? cols - prompt_width : 0;
+    const std::size_t promptWidth = 2;
+    const std::size_t wrap = cols > promptWidth ? cols - promptWidth : 0;
     std::vector<std::string> lines;
     for (std::size_t pos = 0; pos < input.size(); pos += wrap) {
         lines.push_back(input.substr(pos, wrap));
     }
     if (lines.empty()) lines.push_back("");
 
-    const std::size_t input_lines = lines.size();
-    const std::size_t log_height = rows > (1 + input_lines) ? rows - (1 + input_lines) : 0;
-    std::size_t start = log.size() > log_height ? log.size() - log_height : 0;
-    for (std::size_t i = 0; i < log_height && (start + i) < log.size(); ++i) {
+    const std::size_t inputLines = lines.size();
+    const std::size_t logHeight = rows > (1 + inputLines) ? rows - (1 + inputLines) : 0;
+    std::size_t start = log.size() > logHeight ? log.size() - logHeight : 0;
+    for (std::size_t i = 0; i < logHeight && (start + i) < log.size(); ++i) {
         const std::string& line = log[start + i];
         scr.print_str(1, 1 + i, line);
         if (line.rfind("$ ", 0) == 0) {
-            highlight_bf(scr, 3, 1 + i, line.substr(2));
+            highlightBf(scr, 3, 1 + i, line.substr(2));
         }
     }
 
-    for (std::size_t i = 0; i < input_lines; ++i) {
-        std::string prompt_line = (i == 0 ? "$ " : "  ") + lines[i];
-        std::size_t row = log_height + 1 + i;
-        scr.print_str(1, row, prompt_line);
-        highlight_bf(scr, 3, row, lines[i]);
+    for (std::size_t i = 0; i < inputLines; ++i) {
+        std::string promptLine = (i == 0 ? "$ " : "  ") + lines[i];
+        std::size_t row = logHeight + 1 + i;
+        scr.print_str(1, row, promptLine);
+        highlightBf(scr, 3, row, lines[i]);
     }
 
-    std::string status = "ptr: " + std::to_string(cellptr) + " val: " + std::to_string(+cellval);
+    std::string status = "ptr: " + std::to_string(cellPtr) + " val: " + std::to_string(+cellVal);
     if (status.size() < cols)
         status += std::string(cols - status.size(), ' ');
     else
@@ -108,29 +108,29 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     scr.fill_fg(1, rows, cols, 1, Term::Color::Name::Black);
     scr.print_str(1, rows, status);
 
-    scr.set_cursor_pos(std::min(prompt_width + lines.back().size(), cols), rows - 1);
+    scr.set_cursor_pos(std::min(promptWidth + lines.back().size(), cols), rows - 1);
     return scr.render(1, 1, true);
 }
 }  // namespace
 
-void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool optimize, int eof,
-              bool dynamicSize) {
+void runRepl(std::vector<uint8_t>& cells, size_t& cellPtr, size_t ts, bool optimize, int eof,
+             bool dynamicSize) {
     Term::terminal.setOptions(Term::Option::ClearScreen, Term::Option::NoSignalKeys,
                               Term::Option::Raw);
-    Term::Screen term_size = Term::screen_size();
-    Term::Window scr(term_size);
+    Term::Screen termSize = Term::screen_size();
+    Term::Window scr(termSize);
     std::vector<std::string> log;
     std::string input;
     std::vector<std::string> history;
-    std::size_t history_index = 0;
+    std::size_t historyIndex = 0;
     bool on = true;
     while (on) {
-        Term::cout << render(scr, log, input, cellptr, cells[cellptr]) << std::flush;
+        Term::cout << render(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
-            term_size = ev;
-            scr = Term::Window(term_size);
-            Term::cout << render(scr, log, input, cellptr, cells[cellptr]) << std::flush;
+            termSize = ev;
+            scr = Term::Window(termSize);
+            Term::cout << render(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
             continue;
         }
         Term::Key key = ev;
@@ -143,34 +143,34 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
             if (input == "exit" || input == "quit") {
                 on = false;
             } else if (input == "clear") {
-                cellptr = 0;
+                cellPtr = 0;
                 cells.assign(ts, 0);
                 log.clear();
             } else if (input == "dump") {
                 std::ostringstream oss;
-                dumpMemory(cells, cellptr, oss);
-                append_lines(log, oss.str());
+                dumpMemory(cells, cellPtr, oss);
+                appendLines(log, oss.str());
             } else if (input == "help") {
                 log.push_back("Commands: help, dump, clear, exit/quit");
             } else if (!input.empty()) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
-                executeExcept(cells, cellptr, input, optimize, eof, dynamicSize, true);
+                executeExcept(cells, cellPtr, input, optimize, eof, dynamicSize, true);
                 std::cout.rdbuf(oldbuf);
-                append_lines(log, oss.str());
+                appendLines(log, oss.str());
             }
             input.clear();
         } else if (key == Term::Key::ArrowUp) {
-            if (!history.empty() && history_index > 0) {
-                --history_index;
-                input = history[history_index];
+            if (!history.empty() && historyIndex > 0) {
+                --historyIndex;
+                input = history[historyIndex];
             }
         } else if (key == Term::Key::ArrowDown) {
-            if (history_index + 1 < history.size()) {
-                ++history_index;
-                input = history[history_index];
-            } else if (history_index + 1 == history.size()) {
-                history_index = history.size();
+            if (historyIndex + 1 < history.size()) {
+                ++historyIndex;
+                input = history[historyIndex];
+            } else if (historyIndex + 1 == history.size()) {
+                historyIndex = history.size();
                 input.clear();
             }
         } else if (key == Term::Key::Backspace) {
