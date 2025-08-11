@@ -373,8 +373,9 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
 struct instruction {
     const void* jump;
     int32_t data;
-    const int16_t auxData;
-    const int16_t offset;
+    int16_t auxData;
+    int16_t offset;
+    uint8_t op;
 };
 
 int32_t fold(std::string_view code, size_t& i, char match) {
@@ -500,23 +501,24 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
         auto emit = [&](instruction inst) {
             if (!instructions.empty() && instructions.back().offset == inst.offset) {
-                const void *addSub = jtable[insType::ADD_SUB];
-                const void *setIns = jtable[insType::SET];
-                const void *clrIns = jtable[insType::CLR];
-                auto &last = instructions.back();
-                bool lastIsWrite = last.jump == addSub || last.jump == setIns || last.jump == clrIns;
-                bool newIsWrite = inst.jump == addSub || inst.jump == setIns || inst.jump == clrIns;
+                auto& last = instructions.back();
+                bool lastIsWrite = last.op == insType::ADD_SUB || last.op == insType::SET ||
+                                   last.op == insType::CLR;
+                bool newIsWrite = inst.op == insType::ADD_SUB || inst.op == insType::SET ||
+                                  inst.op == insType::CLR;
                 if (lastIsWrite && newIsWrite) {
-                    if (inst.jump == addSub) {
-                        if (last.jump == addSub) {
+                    if (inst.op == insType::ADD_SUB) {
+                        if (last.op == insType::ADD_SUB) {
                             last.data += inst.data;
                             return;
-                        } else if (last.jump == setIns) {
+                        } else if (last.op == insType::SET) {
                             last.data = static_cast<CellT>(last.data + inst.data);
                             return;
-                        } else if (last.jump == clrIns) {
+                        } else if (last.op == insType::CLR) {
                             instructions.pop_back();
-                            instructions.push_back(instruction{setIns, static_cast<int32_t>(static_cast<CellT>(inst.data)), 0, inst.offset});
+                            instructions.push_back(instruction{
+                                nullptr, static_cast<int32_t>(static_cast<CellT>(inst.data)), 0,
+                                inst.offset, static_cast<uint8_t>(insType::SET)});
                             return;
                         }
                     } else {
@@ -529,24 +531,24 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             instructions.push_back(inst);
         };
 
-#define MOVEOFFSET()                                                                 \
-    if (offset) [[likely]] {                                                         \
-        emit(instruction{jtable[insType::PTR_MOV], offset, 0, 0});                   \
-        offset = 0;                                                                  \
+#define MOVEOFFSET()                                                                      \
+    if (offset) [[likely]] {                                                              \
+        emit(instruction{nullptr, offset, 0, 0, static_cast<uint8_t>(insType::PTR_MOV)}); \
+        offset = 0;                                                                       \
     }
 
         for (size_t i = 0; i < code.length(); i++) {
             switch (code[i]) {
                 case '+':
-                    emit(instruction{jtable[set ? insType::SET : insType::ADD_SUB],
-                                     fold(code, i, '+'), 0, offset});
+                    emit(instruction{nullptr, fold(code, i, '+'), 0, offset,
+                                     static_cast<uint8_t>(set ? insType::SET : insType::ADD_SUB)});
                     set = false;
                     break;
                 case '-': {
                     const int32_t folded = -fold(code, i, '-');
-                    emit(instruction{jtable[set ? insType::SET : insType::ADD_SUB],
-                                     set ? static_cast<int32_t>(static_cast<CellT>(folded)) : folded,
-                                     0, offset});
+                    emit(instruction{
+                        nullptr, set ? static_cast<int32_t>(static_cast<CellT>(folded)) : folded, 0,
+                        offset, static_cast<uint8_t>(set ? insType::SET : insType::ADD_SUB)});
                     set = false;
                     break;
                 }
@@ -559,7 +561,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 case '[':
                     MOVEOFFSET();
                     braceStack.push_back(instructions.size());
-                    emit(instruction{jtable[insType::JMP_ZER], 0, 0, 0});
+                    emit(instruction{nullptr, 0, 0, 0, static_cast<uint8_t>(insType::JMP_ZER)});
                     break;
                 case ']': {
                     if (!braceStack.size()) return 1;
@@ -569,29 +571,35 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     const int sizeminstart = instructions.size() - start;
                     braceStack.pop_back();
                     instructions[start].data = sizeminstart;
-                    emit(instruction{jtable[insType::JMP_NOT_ZER], sizeminstart, 0, 0});
+                    emit(instruction{nullptr, sizeminstart, 0, 0,
+                                     static_cast<uint8_t>(insType::JMP_NOT_ZER)});
                     break;
                 }
                 case '.':
-                    emit(instruction{jtable[insType::PUT_CHR], fold(code, i, '.'), 0, offset});
+                    emit(instruction{nullptr, fold(code, i, '.'), 0, offset,
+                                     static_cast<uint8_t>(insType::PUT_CHR)});
                     break;
                 case ',':
-                    emit(instruction{jtable[insType::RAD_CHR], 0, 0, offset});
+                    emit(
+                        instruction{nullptr, 0, 0, offset, static_cast<uint8_t>(insType::RAD_CHR)});
                     break;
                 case 'C':
-                    emit(instruction{jtable[insType::CLR], 0, 0, offset});
+                    emit(instruction{nullptr, 0, 0, offset, static_cast<uint8_t>(insType::CLR)});
                     break;
                 case 'P':
-                    emit(instruction{jtable[insType::MUL_CPY], copyloopMap[copyloopCounter++],
-                                     static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
+                    emit(instruction{nullptr, copyloopMap[copyloopCounter++],
+                                     static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset,
+                                     static_cast<uint8_t>(insType::MUL_CPY)});
                     break;
                 case 'R':
                     MOVEOFFSET();
-                    emit(instruction{jtable[insType::SCN_RGT], scanloopMap[scanloopCounter++], 0, 0});
+                    emit(instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0,
+                                     static_cast<uint8_t>(insType::SCN_RGT)});
                     break;
                 case 'L':
                     MOVEOFFSET();
-                    emit(instruction{jtable[insType::SCN_LFT], scanloopMap[scanloopCounter++], 0, 0});
+                    emit(instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0,
+                                     static_cast<uint8_t>(insType::SCN_LFT)});
                     break;
                 case 'S':
                     set = true;
@@ -599,11 +607,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             }
         }
         MOVEOFFSET()
-        emit(instruction{jtable[insType::END], 0, 0, 0});
+        emit(instruction{nullptr, 0, 0, 0, static_cast<uint8_t>(insType::END)});
 
         if (!braceStack.empty()) return 2;
 
         instructions.shrink_to_fit();
+        for (auto& inst : instructions) {
+            inst.jump = jtable[inst.op];
+        }
     }
 
     auto cell = cells.data() + cellPtr;
@@ -649,13 +660,13 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     goto * insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
-#define EXPAND_IF_NEEDED()                                                       \
-    if (insp->offset > 0) {                                                      \
-        const ptrdiff_t currentCell = cell - cellBase;                           \
-        const ptrdiff_t neededIndex = currentCell + insp->offset;                \
-        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) {               \
-            ensure(currentCell, neededIndex);                                    \
-        }                                                                        \
+#define EXPAND_IF_NEEDED()                                         \
+    if (insp->offset > 0) {                                        \
+        const ptrdiff_t currentCell = cell - cellBase;             \
+        const ptrdiff_t neededIndex = currentCell + insp->offset;  \
+        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) { \
+            ensure(currentCell, neededIndex);                      \
+        }                                                          \
     }
 #define OFFCELL() *(cell + insp->offset)
 #define OFFCELLP() *(cell + insp->offset + insp->data)
@@ -835,6 +846,9 @@ int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& co
     return ret;
 }
 
-template int bfvmcpp::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int, bool, bool);
-template int bfvmcpp::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int, bool, bool);
-template int bfvmcpp::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int, bool, bool);
+template int bfvmcpp::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int,
+                                       bool, bool);
+template int bfvmcpp::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
+                                        bool, bool);
+template int bfvmcpp::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
+                                        bool, bool);
