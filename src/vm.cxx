@@ -353,6 +353,7 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
             }
             x -= LANES;
         }
+        phaseAtP = static_cast<unsigned>(x - base) & Mask;
         while (x >= base) {
             if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
             --x;
@@ -1025,11 +1026,23 @@ _SCN_LFT: {
         unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 1u;
         size_t back = simdScan0BackStride<2, CellT>(cellBase, cell, phaseAtP);
         cell -= back;
+        if (cell < cellBase) {
+            cell = cellBase;
+            cellPtr = 0;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
+        }
         LOOP();
     } else if (step == 4) {
         unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 3u;
         size_t back = simdScan0BackStride<4, CellT>(cellBase, cell, phaseAtP);
         cell -= back;
+        if (cell < cellBase) {
+            cell = cellBase;
+            cellPtr = 0;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
+        }
         LOOP();
     } else if (step == 8) {
         unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 7u;

@@ -110,12 +110,41 @@ static void test_mul_cpy() {
 }
 
 template <typename CellT>
+static void test_scan_stride() {
+    {
+        std::vector<CellT> cells(5, 0);
+        cells[4] = 1;
+        cells[2] = 1;
+        size_t ptr = 4;
+        run<CellT>("[<<]", cells, ptr);
+        assert(ptr == 0);
+    }
+    {
+        std::vector<CellT> cells(9, 0);
+        cells[8] = 1;
+        cells[4] = 1;
+        size_t ptr = 8;
+        run<CellT>("[<<<<]", cells, ptr);
+        assert(ptr == 0);
+    }
+    {
+        std::vector<CellT> cells(17, 0);
+        cells[16] = 1;
+        cells[8] = 1;
+        size_t ptr = 16;
+        run<CellT>("[<<<<<<<<]", cells, ptr);
+        assert(ptr == 0);
+    }
+}
+
+template <typename CellT>
 static void run_tests() {
     test_loops<CellT>();
     test_io<CellT>();
     test_wrapping<CellT>();
     test_eof_behavior<CellT>();
     test_boundary_checks<CellT>();
+    test_scan_stride<CellT>();
     test_mul_cpy<CellT>();
 }
 
