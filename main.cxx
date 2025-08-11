@@ -22,27 +22,27 @@
 #include "cpp-terminal/style.hpp"
 #include "repl.hxx"
 
-void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr, std::ostream& out) {
+void dumpMemory(const std::vector<uint8_t>& cells, size_t cellPtr, std::ostream& out) {
     if (cells.empty()) {
         out << "Memory dump:" << '\n' << "<empty>" << std::endl;
         return;
     }
     size_t lastNonEmpty = cells.size() - 1;
-    while (lastNonEmpty > cellptr && lastNonEmpty > 0 && !cells[lastNonEmpty]) {
+    while (lastNonEmpty > cellPtr && lastNonEmpty > 0 && !cells[lastNonEmpty]) {
         --lastNonEmpty;
     }
     out << "Memory dump:" << '\n'
         << Term::Style::Underline
         << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |"
         << Term::Style::Reset << std::endl;
-    size_t end = std::max(lastNonEmpty, std::min(cellptr, cells.size() - 1));
+    size_t end = std::max(lastNonEmpty, std::min(cellPtr, cells.size() - 1));
     for (size_t i = 0, row = 0; i <= end; ++i) {
         if (i % 10 == 0) {
             if (row) out << std::endl;
             out << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
             row += 10;
         }
-        out << (i == cellptr ? Term::color_fg(Term::Color::Name::Green)
+        out << (i == cellPtr ? Term::color_fg(Term::Color::Name::Green)
                               : Term::color_fg(Term::Color::Name::Default))
             << +cells[i] << Term::color_fg(Term::Color::Name::Default)
             << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
@@ -50,9 +50,9 @@ void dumpMemory(const std::vector<uint8_t>& cells, size_t cellptr, std::ostream&
     out << Term::Style::Reset << std::endl;
 }
 
-void executeExcept(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
+void executeExcept(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code, bool optimize,
                    int eof, bool dynamicSize, bool term) {
-    int ret = bfvmcpp::execute(cells, cellptr, code, optimize, eof, dynamicSize, term);
+    int ret = bfvmcpp::execute(cells, cellPtr, code, optimize, eof, dynamicSize, term);
     switch (ret) {
         case 1:
             std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
@@ -73,7 +73,7 @@ int main(int argc, char* argv[]) {
     std::string filename;
     cmdl("i", "") >> filename;
     const bool optimize = !cmdl["nopt"];
-    const bool sdumpMemory = cmdl["dm"];
+    const bool dumpMemoryFlag = cmdl["dm"];
     const bool help = cmdl["h"];
     const bool dynamicSize = cmdl["dts"];
     int eof = 0;
@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
     }
     size_t ts = static_cast<size_t>(tsArg);
 
-    size_t cellptr = 0;
+    size_t cellPtr = 0;
     std::vector<uint8_t> cells;
     cells.assign(ts, 0);
 
@@ -108,11 +108,11 @@ int main(int argc, char* argv[]) {
                           << Term::color_fg(Term::Color::Name::Default)
                           << " Error while reading file";
             } else {
-                executeExcept(cells, cellptr, code, optimize, eof, dynamicSize);
-                if (sdumpMemory) dumpMemory(cells, cellptr);
+                executeExcept(cells, cellPtr, code, optimize, eof, dynamicSize);
+                if (dumpMemoryFlag) dumpMemory(cells, cellPtr);
             }
         }
     } else {
-        run_repl(cells, cellptr, ts, optimize, eof, dynamicSize);
+        runRepl(cells, cellPtr, ts, optimize, eof, dynamicSize);
     }
 }

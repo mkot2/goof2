@@ -38,27 +38,27 @@ static inline unsigned LZCNT32(unsigned x) {
 }
 #endif
 
-static inline uint32_t stride_mask_32(unsigned step, unsigned phase) {
+static inline uint32_t strideMask32(unsigned step, unsigned phase) {
     uint32_t m = 0;
     for (unsigned i = 0; i < 32; i++)
         if (((i + phase) % step) == 0) m |= (1u << i);
     return m;
 }
 
-static inline uint16_t stride_mask_16(unsigned step, unsigned phase) {
+static inline uint16_t strideMask16(unsigned step, unsigned phase) {
     uint16_t m = 0;
     for (unsigned i = 0; i < 16; i++)
         if (((i + phase) % step) == 0) m |= (uint16_t(1) << i);
     return m;
 }
 
-static inline unsigned posmod(ptrdiff_t x, unsigned m) {
+static inline unsigned posMod(ptrdiff_t x, unsigned m) {
     ptrdiff_t r = x % (ptrdiff_t)m;
     if (r < 0) r += m;
     return (unsigned)r;
 }
 
-static inline size_t simd_scan0_fwd(const uint8_t* p, const uint8_t* end) {
+static inline size_t simdScan0Fwd(const uint8_t* p, const uint8_t* end) {
     const uint8_t* x = p;
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
     while (((uintptr_t)x & 31u) && x < end) {
@@ -97,7 +97,7 @@ static inline size_t simd_scan0_fwd(const uint8_t* p, const uint8_t* end) {
 }
 
 /*** step == 1 backward scan: last zero in [base,p], return distance back ***/
-static inline size_t simd_scan0_back(const uint8_t* base, const uint8_t* p) {
+static inline size_t simdScan0Back(const uint8_t* base, const uint8_t* p) {
     const uint8_t* x = p;
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
     while (((uintptr_t)(x - 31) & 31u) && x >= base) {
@@ -140,8 +140,8 @@ static inline size_t simd_scan0_back(const uint8_t* base, const uint8_t* p) {
 }
 
 /*** tiny-stride forward scan: step in {2,4,8} ***/
-static inline size_t simd_scan0_fwd_stride(const uint8_t* p, const uint8_t* end, unsigned step,
-                                           unsigned phase) {
+static inline size_t simdScan0FwdStride(const uint8_t* p, const uint8_t* end, unsigned step,
+                                        unsigned phase) {
     const uint8_t* x = p;
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
     while (((uintptr_t)x & 31u) && x < end) {
@@ -153,7 +153,7 @@ static inline size_t simd_scan0_fwd_stride(const uint8_t* p, const uint8_t* end,
     for (; x + 32 <= end; x += 32) {
         simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)x);
         int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
-        m &= (int)stride_mask_32(step, phase);
+        m &= (int)strideMask32(step, phase);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
             return (size_t)((x - p) + idx);
@@ -170,7 +170,7 @@ static inline size_t simd_scan0_fwd_stride(const uint8_t* p, const uint8_t* end,
     for (; x + 16 <= end; x += 16) {
         simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
         int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-        m &= (int)stride_mask_16(step, phase);
+        m &= (int)strideMask16(step, phase);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
             return (size_t)((x - p) + idx);
@@ -187,22 +187,22 @@ static inline size_t simd_scan0_fwd_stride(const uint8_t* p, const uint8_t* end,
 }
 
 /*** tiny-stride backward scan: step in {2,4,8} ***/
-static inline size_t simd_scan0_back_stride(const uint8_t* base, const uint8_t* p, unsigned step,
-                                            unsigned phase_at_p) {
+static inline size_t simdScan0BackStride(const uint8_t* base, const uint8_t* p, unsigned step,
+                                         unsigned phaseAtP) {
     const uint8_t* x = p;
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
     while (((uintptr_t)(x - 31) & 31u) && x >= base) {
-        if ((phase_at_p % step) == 0 && *x == 0) return (size_t)(p - x);
+        if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
         --x;
-        phase_at_p = (phase_at_p + step - 1) % step;
+        phaseAtP = (phaseAtP + step - 1) % step;
     }
     const simde__m256i vz = simde_mm256_setzero_si256();
     while (x + 1 >= base + 32) {
         const uint8_t* blk = x - 31;
-        unsigned lane0 = posmod((ptrdiff_t)(blk - base), step);
+        unsigned lane0 = posMod((ptrdiff_t)(blk - base), step);
         simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
         int m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
-        m &= (int)stride_mask_32(step, lane0);
+        m &= (int)strideMask32(step, lane0);
         if (m) {
             unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m);
             return (size_t)(p - (blk + idx));
@@ -211,17 +211,17 @@ static inline size_t simd_scan0_back_stride(const uint8_t* base, const uint8_t* 
     }
 #else
     while (((uintptr_t)(x - 15) & 15u) && x >= base) {
-        if ((phase_at_p % step) == 0 && *x == 0) return (size_t)(p - x);
+        if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
         --x;
-        phase_at_p = (phase_at_p + step - 1) % step;
+        phaseAtP = (phaseAtP + step - 1) % step;
     }
     const simde__m128i vz = simde_mm_setzero_si128();
     while (x + 1 >= base + 16) {
         const uint8_t* blk = x - 15;
-        unsigned lane0 = posmod((ptrdiff_t)(blk - base), step);
+        unsigned lane0 = posMod((ptrdiff_t)(blk - base), step);
         simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
         int m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(v, vz));
-        m &= (int)stride_mask_16(step, lane0);
+        m &= (int)strideMask16(step, lane0);
         if (m) {
             unsigned idx = 31u - (unsigned)LZCNT32((unsigned)m) - 16u;
             return (size_t)(p - (blk + idx));
@@ -230,9 +230,9 @@ static inline size_t simd_scan0_back_stride(const uint8_t* base, const uint8_t* 
     }
 #endif
     while (x >= base) {
-        if ((phase_at_p % step) == 0 && *x == 0) return (size_t)(p - x);
+        if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
         --x;
-        phase_at_p = (phase_at_p + step - 1) % step;
+        phaseAtP = (phaseAtP + step - 1) % step;
     }
     return (size_t)(p - base + 1);
 }
@@ -258,11 +258,11 @@ std::string processBalanced(std::string_view s, char no1, char no2) {
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
 
-enum class memory_model { contiguous, paged, fibonacci };
+enum class MemoryModel { Contiguous, Paged, Fibonacci };
 
 template <bool Dynamic, bool Term>
-int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
-             int eof, memory_model model) {
+int executeImpl(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code, bool optimize,
+                int eof, MemoryModel model) {
     std::vector<instruction> instructions;
     {
         enum insType {
@@ -470,7 +470,7 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
         instructions.shrink_to_fit();
     }
 
-    auto cell = cells.data() + cellptr;
+    auto cell = cells.data() + cellPtr;
     auto insp = instructions.data();
     auto cellBase = cells.data();
     unsigned long long totalExecuted = 0;
@@ -482,12 +482,12 @@ int _execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bo
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         size_t needed = static_cast<size_t>(neededIndex + 1);
         switch (model) {
-            case memory_model::paged: {
+            case MemoryModel::Paged: {
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
                 if (newSize > cells.size()) cells.resize(newSize);
                 break;
             }
-            case memory_model::fibonacci: {
+            case MemoryModel::Fibonacci: {
                 while (cells.size() < needed) {
                     size_t next = fibA + fibB;
                     fibA = fibB;
@@ -612,10 +612,10 @@ _SCN_RGT: {
         uint8_t* const end = cells.data() + cells.size();
         size_t off;
         if (step == 1) {
-            off = simd_scan0_fwd(cell, end);
+            off = simdScan0Fwd(cell, end);
         } else if (step == 2 || step == 4 || step == 8) {
-            const unsigned phase = posmod(static_cast<ptrdiff_t>(cell - cellBase), step);
-            off = simd_scan0_fwd_stride(cell, end, step, phase);
+            const unsigned phase = posMod(static_cast<ptrdiff_t>(cell - cellBase), step);
+            off = simdScan0FwdStride(cell, end, step, phase);
         } else {
             // scalar fallback for arbitrary step
             off = 0;
@@ -648,12 +648,12 @@ _SCN_LFT: {
     }
 
     if (step == 1) {
-        size_t back = simd_scan0_back(cellBase, cell);
+        size_t back = simdScan0Back(cellBase, cell);
         cell -= back;
         LOOP();
     } else if (step == 2 || step == 4 || step == 8) {
-        const unsigned phase_at_p = posmod(static_cast<ptrdiff_t>(cell - cellBase), step);
-        size_t back = simd_scan0_back_stride(cellBase, cell, step, phase_at_p);
+        const unsigned phaseAtP = posMod(static_cast<ptrdiff_t>(cell - cellBase), step);
+        size_t back = simdScan0BackStride(cellBase, cell, step, phaseAtP);
         cell -= back;
         LOOP();
     } else {
@@ -667,29 +667,29 @@ _SCN_LFT: {
 }
 
 _END:
-    cellptr = cell - cellBase;
+    cellPtr = cell - cellBase;
     return 0;
 }
 
-int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellptr, std::string& code, bool optimize,
+int bfvmcpp::execute(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code, bool optimize,
                      int eof, bool dynamicSize, bool term) {
     int ret = 0;
-    memory_model model = memory_model::contiguous;
+    MemoryModel model = MemoryModel::Contiguous;
     // Heuristic: small tapes use contiguous doubling, medium tapes use
     // Fibonacci growth to trade memory for fewer reallocations, and very
     // large tapes switch to fixed-size paged allocation.
     if (dynamicSize) {
         if (cells.size() > (1u << 24))
-            model = memory_model::paged;
+            model = MemoryModel::Paged;
         else if (cells.size() > (1u << 16))
-            model = memory_model::fibonacci;
+            model = MemoryModel::Fibonacci;
     }
     if (dynamicSize) {
-        term ? ret = _execute<true, true>(cells, cellptr, code, optimize, eof, model)
-             : ret = _execute<true, false>(cells, cellptr, code, optimize, eof, model);
+        term ? ret = executeImpl<true, true>(cells, cellPtr, code, optimize, eof, model)
+             : ret = executeImpl<true, false>(cells, cellPtr, code, optimize, eof, model);
     } else {
-        term ? ret = _execute<false, true>(cells, cellptr, code, optimize, eof, model)
-             : ret = _execute<false, false>(cells, cellptr, code, optimize, eof, model);
+        term ? ret = executeImpl<false, true>(cells, cellPtr, code, optimize, eof, model)
+             : ret = executeImpl<false, false>(cells, cellPtr, code, optimize, eof, model);
     }
     return ret;
 }
