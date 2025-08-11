@@ -4,6 +4,13 @@ project(bfvmcpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(BUILD_COVERAGE "Enable coverage reporting" OFF)
+
+if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
+
 # Stub warnings target required by cpp-terminal
 add_library(Warnings INTERFACE)
 add_library(Warnings::Warnings ALIAS Warnings)
@@ -70,3 +77,21 @@ endif()
 
 enable_testing()
 add_subdirectory(tests)
+
+if(BUILD_COVERAGE)
+    find_program(LCOV_EXE lcov)
+    find_program(GENHTML_EXE genhtml)
+    if(LCOV_EXE AND GENHTML_EXE)
+        add_custom_target(coverage
+            DEPENDS vm_execute_tests
+            COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+            COMMAND ${LCOV_EXE} --capture --directory . --output-file coverage.info
+            COMMAND ${LCOV_EXE} --remove coverage.info '/usr/*' --output-file coverage.info
+            COMMAND ${GENHTML_EXE} coverage.info --output-directory coverage
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run tests and generate coverage report"
+        )
+    else()
+        message(WARNING "lcov not found; coverage target will not be available")
+    endif()
+endif()
