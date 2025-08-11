@@ -784,7 +784,7 @@ _JMP_NOT_ZER:
         insp -= insp->data;
     LOOP();
 
-_PUT_CHR:
+_PUT_CHR: {
     std::memset(buffer.data(), static_cast<unsigned char>(OFFCELL()), buffer.size());
 
     size_t left = static_cast<size_t>(insp->data);
@@ -794,6 +794,7 @@ _PUT_CHR:
         left -= chunk;
     }
     LOOP();
+}
 
 _RAD_CHR:
     if constexpr (Dynamic) EXPAND_IF_NEEDED()
