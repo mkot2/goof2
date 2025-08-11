@@ -27,9 +27,6 @@ target_compile_options(Warnings INTERFACE
 
 add_subdirectory(cpp-terminal)
 
-set(BOOST_REGEX_STANDALONE ON CACHE BOOL "" FORCE)
-add_subdirectory(regex-develop)
-
 set(PROJECT_SOURCES
     main.cxx
     src/vm.cxx
@@ -48,7 +45,6 @@ target_include_directories(bfvmcpp PRIVATE
 )
 
 target_link_libraries(bfvmcpp PRIVATE
-    Boost::regex
     cpp-terminal::cpp-terminal
     Warnings
 )
