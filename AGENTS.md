@@ -19,7 +19,6 @@
 ## Licensing
 - The project is licensed under the GNU Affero General Public License v3.0 or later.
 - Third-party components (included via git submodules):
-  - argh (BSD-3-Clause), see `argh/LICENSE`
   - cpp-terminal (MIT), see `cpp-terminal/LICENSE`
   - simde (MIT and CC0), see `simde/COPYING`
 

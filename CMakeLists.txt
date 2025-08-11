@@ -47,10 +47,6 @@ if(GOOF2_ENABLE_REPL)
     set(CPPTERMINAL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 endif()
 
-FetchContent_Declare(argh
-    GIT_REPOSITORY https://github.com/adishavit/argh
-    GIT_TAG c3f0d8c8a6dacb00df626b409248a34e3bcd15f5
-)
 if(GOOF2_ENABLE_REPL)
     FetchContent_Declare(cpp-terminal
         GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
@@ -62,7 +58,6 @@ FetchContent_Declare(simde
     GIT_TAG 7da3fb1d7f9ad859290f7141403036c3c90bf668
 )
 
-FetchContent_MakeAvailable(argh)
 if(GOOF2_ENABLE_REPL)
     FetchContent_MakeAvailable(cpp-terminal)
 endif()
@@ -95,7 +90,6 @@ target_include_directories(goof2 PRIVATE
 )
 
 target_link_libraries(goof2 PRIVATE
-    argh
     Warnings
 )
 if(GOOF2_ENABLE_REPL)
