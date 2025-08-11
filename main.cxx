@@ -22,7 +22,23 @@
 #include "cpp-terminal/style.hpp"
 #include "repl.hxx"
 
+#ifdef _WIN32
+#include <windows.h>
+// Enable ANSI escape sequences on Windows terminals
+static void enable_vt_mode() {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == INVALID_HANDLE_VALUE) return;
+    DWORD mode = 0;
+    if (!GetConsoleMode(hOut, &mode)) return;
+    mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    SetConsoleMode(hOut, mode);
+}
+#endif
+
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    enable_vt_mode();
+#endif
     argh::parser cmdl(argc, argv, argh::parser::PREFER_PARAM_FOR_UNREG_OPTION);
 
     std::string filename;

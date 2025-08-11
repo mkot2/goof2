@@ -12,6 +12,19 @@ cmake --build build
 
 The resulting executable will be located in the `build` directory.
 
+### Windows
+
+The project can also be built on Windows using CMake with either the
+MSVC or MinGW toolchains:
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Release
+```
+
+ANSI escape sequences are enabled automatically on startup so colored
+output works in both PowerShell and `cmd.exe`.
+
 ## Usage
 
 The VM supports selectable cell widths. Use the `--cw` option to choose 8-, 16- or 32-bit
