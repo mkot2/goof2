@@ -9,6 +9,11 @@ option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
+# Default to a Release build if no build type is explicitly set.  This keeps
+# binaries small and enables the high-optimization flags defined below.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "No build type specified. Defaulting to Release.")
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
 # Stub warnings target required by cpp-terminal
@@ -62,6 +67,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(bfvmcpp PRIVATE
         $<$<CONFIG:Release>:-flto>
         $<$<CONFIG:Release>:-Wl,--gc-sections>
+        $<$<CONFIG:Release>:-s>
     )
     set_property(TARGET bfvmcpp PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()

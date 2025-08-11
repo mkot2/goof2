@@ -47,6 +47,14 @@ static inline unsigned LZCNT32(unsigned x) {
 
 template <unsigned Bytes>
 static inline uint32_t strideMask32(unsigned step, unsigned phase) {
+    if constexpr (Bytes == 1) {
+        if (step == 2)
+            return 0x55555555u << phase;
+        if (step == 4)
+            return 0x11111111u << phase;
+        if (step == 8)
+            return 0x01010101u << phase;
+    }
     uint32_t m = 0;
     constexpr unsigned lanes = 32 / Bytes;
     for (unsigned i = 0; i < lanes; i++) {
@@ -65,6 +73,14 @@ static inline uint32_t strideMask32(unsigned step, unsigned phase) {
 
 template <unsigned Bytes>
 static inline uint16_t strideMask16(unsigned step, unsigned phase) {
+    if constexpr (Bytes == 1) {
+        if (step == 2)
+            return uint16_t(0x5555u << phase);
+        if (step == 4)
+            return uint16_t(0x1111u << phase);
+        if (step == 8)
+            return uint16_t(0x0101u << phase);
+    }
     uint16_t m = 0;
     constexpr unsigned lanes = 16 / Bytes;
     for (unsigned i = 0; i < lanes; i++) {
@@ -105,12 +121,6 @@ static inline int compressMask16(int m) {
         m = ((m >> 2) | m);
         return m & 0x1111;
     }
-}
-
-static inline unsigned posMod(ptrdiff_t x, unsigned m) {
-    ptrdiff_t r = x % (ptrdiff_t)m;
-    if (r < 0) r += m;
-    return (unsigned)r;
 }
 
 template <typename CellT>
@@ -234,17 +244,18 @@ static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
 }
 
 /*** tiny-stride forward scan: step in {2,4,8} ***/
-template <typename CellT>
-static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsigned step,
-                                        unsigned phase) {
+template <unsigned Step, typename CellT>
+static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsigned phase) {
+    static_assert(Step == 2 || Step == 4 || Step == 8);
     const CellT* x = p;
     constexpr unsigned Bytes = sizeof(CellT);
+    constexpr unsigned Mask = Step - 1;
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
     constexpr unsigned LANES = 32 / Bytes;
     while (((uintptr_t)x & 31u) && x < end) {
-        if ((phase % step) == 0 && *x == 0) return (size_t)(x - p);
+        if (phase == 0 && *x == 0) return (size_t)(x - p);
         ++x;
-        if (++phase == step) phase = 0;
+        phase = (phase + 1) & Mask;
     }
     const simde__m256i vz = simde_mm256_setzero_si256();
     for (; x + LANES <= end; x += LANES) {
@@ -257,19 +268,19 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
         else
             m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
         m = compressMask32<Bytes>(m);
-        m &= (int)strideMask32<Bytes>(step, phase);
+        m &= (int)strideMask32<Bytes>(Step, phase);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
             return (size_t)((x - p) + idx / Bytes);
         }
-        phase = (phase + LANES) % step;
+        phase = (phase + LANES) & Mask;
     }
 #else
     constexpr unsigned LANES = 16 / Bytes;
     while (((uintptr_t)x & 15u) && x < end) {
-        if ((phase % step) == 0 && *x == 0) return (size_t)(x - p);
+        if (phase == 0 && *x == 0) return (size_t)(x - p);
         ++x;
-        if (++phase == step) phase = 0;
+        phase = (phase + 1) & Mask;
     }
     const simde__m128i vz = simde_mm_setzero_si128();
     for (; x + LANES <= end; x += LANES) {
@@ -282,39 +293,40 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
         else
             m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
         m = compressMask16<Bytes>(m);
-        m &= (int)strideMask16<Bytes>(step, phase);
+        m &= (int)strideMask16<Bytes>(Step, phase);
         if (m) {
             unsigned idx = TZCNT32((unsigned)m);
             return (size_t)((x - p) + idx / Bytes);
         }
-        phase = (phase + LANES) % step;
+        phase = (phase + LANES) & Mask;
     }
 #endif
     while (x < end) {
-        if ((phase % step) == 0 && *x == 0) return (size_t)(x - p);
+        if (phase == 0 && *x == 0) return (size_t)(x - p);
         ++x;
-        if (++phase == step) phase = 0;
+        phase = (phase + 1) & Mask;
     }
     return (size_t)(end - p);
 }
 
 /*** tiny-stride backward scan: step in {2,4,8} ***/
-template <typename CellT>
-static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsigned step,
-                                         unsigned phaseAtP) {
+template <unsigned Step, typename CellT>
+static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsigned phaseAtP) {
+    static_assert(Step == 2 || Step == 4 || Step == 8);
     const CellT* x = p;
     constexpr unsigned Bytes = sizeof(CellT);
+    constexpr unsigned Mask = Step - 1;
 #if SIMDE_NATURAL_VECTOR_SIZE_GE(256)
     constexpr unsigned LANES = 32 / Bytes;
     while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
-        if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
+        if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
         --x;
-        phaseAtP = (phaseAtP + step - 1) % step;
+        phaseAtP = (phaseAtP + Step - 1) & Mask;
     }
     const simde__m256i vz = simde_mm256_setzero_si256();
     while (x + 1 >= base + LANES) {
         const CellT* blk = x - (LANES - 1);
-        unsigned lane0 = posMod((ptrdiff_t)(blk - base), step);
+        unsigned lane0 = (unsigned)(blk - base) & Mask;
         simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
         int m;
         if constexpr (Bytes == 1)
@@ -324,7 +336,7 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
         else
             m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
         m = compressMask32<Bytes>(m);
-        m &= (int)strideMask32<Bytes>(step, lane0);
+        m &= (int)strideMask32<Bytes>(Step, lane0);
         if (m) {
             unsigned bit = 31u - (unsigned)LZCNT32((unsigned)m);
             unsigned lane = bit / Bytes;
@@ -335,14 +347,14 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
 #else
     constexpr unsigned LANES = 16 / Bytes;
     while (((uintptr_t)(x - (LANES - 1)) & 15u) && x >= base) {
-        if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
+        if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
         --x;
-        phaseAtP = (phaseAtP + step - 1) % step;
+        phaseAtP = (phaseAtP + Step - 1) & Mask;
     }
     const simde__m128i vz = simde_mm_setzero_si128();
     while (x + 1 >= base + LANES) {
         const CellT* blk = x - (LANES - 1);
-        unsigned lane0 = posMod((ptrdiff_t)(blk - base), step);
+        unsigned lane0 = (unsigned)(blk - base) & Mask;
         simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
         int m;
         if constexpr (Bytes == 1)
@@ -352,7 +364,7 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
         else
             m = simde_mm_movemask_epi8(simde_mm_cmpeq_epi32(v, vz));
         m = compressMask16<Bytes>(m);
-        m &= (int)strideMask16<Bytes>(step, lane0);
+        m &= (int)strideMask16<Bytes>(Step, lane0);
         unsigned um = (unsigned)m & 0xFFFFu;
         if (um) {
             unsigned bit = 31u - (unsigned)LZCNT32(um);
@@ -363,9 +375,9 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
     }
 #endif
     while (x >= base) {
-        if ((phaseAtP % step) == 0 && *x == 0) return (size_t)(p - x);
+        if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
         --x;
-        phaseAtP = (phaseAtP + step - 1) % step;
+        phaseAtP = (phaseAtP + Step - 1) & Mask;
     }
     return (size_t)(p - base + 1);
 }
@@ -630,7 +642,6 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto cell = cells.data() + cellPtr;
     auto insp = instructions.data();
     auto cellBase = cells.data();
-    unsigned long long totalExecuted = 0;
 
     std::array<char, 1024> buffer = {0};
 
@@ -664,10 +675,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     // Really not my fault if we die here
     goto * insp->jump;
 
-#define LOOP()       \
-    totalExecuted++; \
-    insp++;          \
-    goto * insp->jump
+#define LOOP()  \
+    insp++;   \
+    goto *insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
 #define EXPAND_IF_NEEDED()                                         \
@@ -770,9 +780,15 @@ _SCN_RGT: {
         size_t off;
         if (step == 1) {
             off = simdScan0Fwd<CellT>(cell, end);
-        } else if (step == 2 || step == 4 || step == 8) {
-            const unsigned phase = posMod(static_cast<ptrdiff_t>(cell - cellBase), step);
-            off = simdScan0FwdStride<CellT>(cell, end, step, phase);
+        } else if (step == 2) {
+            unsigned phase = static_cast<unsigned>(cell - cellBase) & 1u;
+            off = simdScan0FwdStride<2, CellT>(cell, end, phase);
+        } else if (step == 4) {
+            unsigned phase = static_cast<unsigned>(cell - cellBase) & 3u;
+            off = simdScan0FwdStride<4, CellT>(cell, end, phase);
+        } else if (step == 8) {
+            unsigned phase = static_cast<unsigned>(cell - cellBase) & 7u;
+            off = simdScan0FwdStride<8, CellT>(cell, end, phase);
         } else {
             // scalar fallback for arbitrary step
             off = 0;
@@ -808,9 +824,19 @@ _SCN_LFT: {
         size_t back = simdScan0Back<CellT>(cellBase, cell);
         cell -= back;
         LOOP();
-    } else if (step == 2 || step == 4 || step == 8) {
-        const unsigned phaseAtP = posMod(static_cast<ptrdiff_t>(cell - cellBase), step);
-        size_t back = simdScan0BackStride<CellT>(cellBase, cell, step, phaseAtP);
+    } else if (step == 2) {
+        unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 1u;
+        size_t back = simdScan0BackStride<2, CellT>(cellBase, cell, phaseAtP);
+        cell -= back;
+        LOOP();
+    } else if (step == 4) {
+        unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 3u;
+        size_t back = simdScan0BackStride<4, CellT>(cellBase, cell, phaseAtP);
+        cell -= back;
+        LOOP();
+    } else if (step == 8) {
+        unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 7u;
+        size_t back = simdScan0BackStride<8, CellT>(cellBase, cell, phaseAtP);
         cell -= back;
         LOOP();
     } else {
