@@ -11,11 +11,21 @@
 #define GOOF2_DEFAULT_SAVE_STATE 0
 #define GOOF2_TAPE_WARN_BYTES (1ull << 30)  // 1 GiB
 
+#if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
+#define GOOF2_HAS_OS_VM 1
+#else
+#define GOOF2_HAS_OS_VM 0
+#endif
+
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace goof2 {
+#if GOOF2_HAS_OS_VM
+extern void* (*os_alloc)(size_t);
+extern void (*os_free)(void*, size_t);
+#endif
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
 /// @tparam CellT Cell width type (uint8_t, uint16_t, uint32_t, uint64_t)
 /// @param cells Vector of cells of type CellT.
