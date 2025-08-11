@@ -1,75 +1,41 @@
 add_executable(vm_execute_tests
-    ${CMAKE_SOURCE_DIR}/src/vm.cxx
     test_execute.cxx
 )
 
-target_include_directories(vm_execute_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}
-    ${SIMDE_INCLUDE_DIR}
-)
-
 target_link_libraries(vm_execute_tests PRIVATE
+    vm
     Warnings
 )
-if(GOOF2_ENABLE_REPL)
-    target_link_libraries(vm_execute_tests PRIVATE cpp-terminal::cpp-terminal)
-endif()
 
 add_test(NAME vm_execute_tests COMMAND vm_execute_tests)
 
 add_executable(vm_alloc_fail_tests
-    ${CMAKE_SOURCE_DIR}/src/vm.cxx
     test_alloc_fail.cxx
 )
 
-target_include_directories(vm_alloc_fail_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}
-    ${SIMDE_INCLUDE_DIR}
-)
-
 target_link_libraries(vm_alloc_fail_tests PRIVATE
-    cpp-terminal::cpp-terminal
+    vm
     Warnings
 )
 
 add_test(NAME vm_alloc_fail_tests COMMAND vm_alloc_fail_tests)
 
 add_executable(vm_memory_model_tests
-    ${CMAKE_SOURCE_DIR}/src/vm.cxx
     test_memory_models.cxx
 )
 
-target_include_directories(vm_memory_model_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}
-    ${SIMDE_INCLUDE_DIR}
-)
-
 target_link_libraries(vm_memory_model_tests PRIVATE
+    vm
     Warnings
 )
-if(GOOF2_ENABLE_REPL)
-    target_link_libraries(vm_memory_model_tests PRIVATE cpp-terminal::cpp-terminal)
-endif()
 
 add_test(NAME vm_memory_model_tests COMMAND vm_memory_model_tests)
 
 add_executable(vm_execute_fuzz
-    ${CMAKE_SOURCE_DIR}/src/vm.cxx
     fuzz_execute.cxx
 )
 
-target_include_directories(vm_execute_fuzz PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}
-    ${SIMDE_INCLUDE_DIR}
-)
-
 target_link_libraries(vm_execute_fuzz PRIVATE
+    vm
     Warnings
 )
-if(GOOF2_ENABLE_REPL)
-    target_link_libraries(vm_execute_fuzz PRIVATE cpp-terminal::cpp-terminal)
-endif()

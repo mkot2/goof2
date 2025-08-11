@@ -72,29 +72,39 @@ if(NOT simde_POPULATED)
 endif()
 set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
-set(PROJECT_SOURCES
-    main.cxx
+set(VM_SOURCES
     src/vm.cxx
     include/vm.hxx
 )
+
+add_library(vm ${VM_SOURCES})
+target_include_directories(vm
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include/goof2>
+    PRIVATE
+        ${SIMDE_INCLUDE_DIR}
+)
+target_link_libraries(vm PRIVATE Warnings)
+
+set(EXEC_SOURCES
+    main.cxx
+)
 if(GOOF2_ENABLE_REPL)
-    list(APPEND PROJECT_SOURCES
+    list(APPEND EXEC_SOURCES
         src/repl.cxx
         include/repl.hxx
     )
 endif()
 
-add_executable(goof2
-    ${PROJECT_SOURCES}
-)
+set(PROJECT_SOURCES ${EXEC_SOURCES} ${VM_SOURCES})
 
-target_include_directories(goof2 PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${SIMDE_INCLUDE_DIR}
+add_executable(goof2
+    ${EXEC_SOURCES}
 )
 
 target_link_libraries(goof2 PRIVATE
+    vm
     Warnings
 )
 if(GOOF2_ENABLE_REPL)
@@ -102,9 +112,11 @@ if(GOOF2_ENABLE_REPL)
     target_compile_definitions(goof2 PRIVATE GOOF2_ENABLE_REPL)
 endif()
 
-install(TARGETS goof2
+install(TARGETS goof2 vm
     EXPORT goof2Targets
     RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
 )
 
 install(FILES include/*.hxx DESTINATION include/goof2)
