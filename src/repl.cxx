@@ -162,7 +162,6 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     std::string menuInput;
     int newCw = 0;
     bool on = true;
-    constexpr std::size_t TAPE_WARN_BYTES = 1ull << 30;  // 1 GiB
     auto resetContext = [&]() {
         cellPtr = 0;
         std::vector<CellT> newCells(cfg.tapeSize, 0);
@@ -196,7 +195,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                         std::size_t val = std::stoull(menuInput);
                         if (val > 0) {
                             std::size_t bytes = val * sizeof(CellT);
-                            if (bytes > TAPE_WARN_BYTES) {
+                            if (bytes > GOOF2_TAPE_WARN_BYTES) {
                                 log.push_back("WARNING: tape alloc ~" +
                                               std::to_string(bytes >> 20) +
                                               " MiB may exhaust memory");

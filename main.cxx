@@ -49,7 +49,6 @@ int main(int argc, char* argv[]) {
     cmdl("eof", 0) >> cfg.eof;
     cmdl("ts", 30000) >> cfg.tapeSize;
     cmdl("cw", 8) >> cfg.cellWidth;
-    constexpr std::size_t TAPE_WARN_BYTES = 1ull << 30;  // 1 GiB
     if (cfg.tapeSize == 0) {
         std::cout << Term::color_fg(Term::Color::Name::Red)
                   << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
@@ -57,7 +56,7 @@ int main(int argc, char* argv[]) {
         cfg.tapeSize = 30000;
     }
     std::size_t requiredMem = cfg.tapeSize * (cfg.cellWidth / 8);
-    if (requiredMem > TAPE_WARN_BYTES) {
+    if (requiredMem > GOOF2_TAPE_WARN_BYTES) {
         std::cout << Term::color_fg(Term::Color::Name::Yellow)
                   << "WARNING:" << Term::color_fg(Term::Color::Name::Default)
                   << " Tape allocation ~" << (requiredMem >> 20) << " MiB may exceed system memory"
