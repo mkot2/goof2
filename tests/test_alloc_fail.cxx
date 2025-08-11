@@ -20,7 +20,7 @@
 
 enum class MemoryModel { Contiguous, Paged, Fibonacci, OSBacked };
 
-template <typename CellT, bool Dynamic, bool Term>
+template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model);
 
@@ -42,7 +42,8 @@ static void test_initial_failure() {
     std::string code;
     std::ostringstream err;
     auto* old = std::cerr.rdbuf(err.rdbuf());
-    int ret = executeImpl<uint8_t, true, false>(cells, ptr, code, true, 0, MemoryModel::OSBacked);
+    int ret =
+        executeImpl<uint8_t, true, false, false>(cells, ptr, code, true, 0, MemoryModel::OSBacked);
     std::cerr.rdbuf(old);
     goof2::os_alloc = real_alloc;
     assert(ret == 0);
@@ -68,7 +69,8 @@ static void test_growth_failure() {
     std::string code = ">";
     std::ostringstream err;
     auto* old = std::cerr.rdbuf(err.rdbuf());
-    int ret = executeImpl<uint8_t, true, false>(cells, ptr, code, true, 0, MemoryModel::OSBacked);
+    int ret =
+        executeImpl<uint8_t, true, false, false>(cells, ptr, code, true, 0, MemoryModel::OSBacked);
     std::cerr.rdbuf(old);
     goof2::os_alloc = real_alloc;
     assert(ret == 0);
