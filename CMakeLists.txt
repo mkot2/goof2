@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
+include(ProcessorCount)
+ProcessorCount(LTO_PARALLEL_JOBS)
+if(NOT LTO_PARALLEL_JOBS OR LTO_PARALLEL_JOBS EQUAL 0)
+    set(LTO_PARALLEL_JOBS 1)
+endif()
 
 # Link the C++ runtime statically on Windows to avoid missing procedure
 # entry point errors when running the prebuilt executable.
@@ -128,9 +133,10 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         $<$<CONFIG:Release>:-fno-semantic-interposition>
         $<$<CONFIG:Release>:-ffunction-sections>
         $<$<CONFIG:Release>:-fdata-sections>
+        $<$<CONFIG:Release>:-flto=${LTO_PARALLEL_JOBS}>
     )
     target_link_options(goof2 PRIVATE
-        $<$<CONFIG:Release>:-flto>
+        $<$<CONFIG:Release>:-flto=${LTO_PARALLEL_JOBS}>
         $<$<CONFIG:Release>:-Wl,--gc-sections>
         $<$<CONFIG:Release>:-s>
     )
