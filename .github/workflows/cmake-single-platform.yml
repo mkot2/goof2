@@ -61,27 +61,27 @@ jobs:
 
       - name: Configure CMake (Linux)
         if: runner.os == 'Linux'
-        run: >
-          cmake -B build
-            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-            -DCMAKE_C_COMPILER=${{env.CC}}
-            -DCMAKE_CXX_COMPILER=${{env.CXX}}
-            -DCMAKE_C_FLAGS="-m${{env.SIMD}}"
-            -DCMAKE_CXX_FLAGS="-m${{env.SIMD}}"
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DCMAKE_C_COMPILER=${{env.CC}} \
+            -DCMAKE_CXX_COMPILER=${{env.CXX}} \
+            -DCMAKE_C_FLAGS="-m${{env.SIMD}}" \
+            -DCMAKE_CXX_FLAGS="-m${{env.SIMD}}" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
-        run: >
-          cmake -B build
-            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-            -DCMAKE_C_COMPILER=${{env.CC}}
-            -DCMAKE_CXX_COMPILER=${{env.CXX}}
-            -DCMAKE_C_FLAGS="-m${{env.SIMD}}"
-            -DCMAKE_CXX_FLAGS="-m${{env.SIMD}}"
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DCMAKE_C_COMPILER=${{env.CC}} \
+            -DCMAKE_CXX_COMPILER=${{env.CXX}} \
+            -DCMAKE_C_FLAGS="-m${{env.SIMD}}" \
+            -DCMAKE_CXX_FLAGS="-m${{env.SIMD}}" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -G "MinGW Makefiles"
         shell: msys2 {0}
 
