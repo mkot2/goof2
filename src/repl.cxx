@@ -1,5 +1,5 @@
 /*
-    Goof - An optimizing brainfuck VM
+    Goof2 - An optimizing brainfuck VM
     TUI REPL implementation
     Published under the GNU AGPL-3.0-or-later license
 */
@@ -17,8 +17,8 @@
 #include "cpp-terminal/screen.hpp"
 #include "cpp-terminal/style.hpp"
 #include "cpp-terminal/terminal.hpp"
-#include "cpp-terminal/window.hpp"
 #include "cpp-terminal/terminfo.hpp"
+#include "cpp-terminal/window.hpp"
 #include "include/vm.hxx"
 
 namespace {
