@@ -4,6 +4,8 @@ project(goof2 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(FetchContent)
+
 # Link the C++ runtime statically on Windows to avoid missing procedure
 # entry point errors when running the prebuilt executable.
 if(MSVC)
@@ -42,8 +44,25 @@ set(CPPTERMINAL_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(CPPTERMINAL_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
 set(CPPTERMINAL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(argh)
-add_subdirectory(cpp-terminal)
+FetchContent_Declare(argh
+    GIT_REPOSITORY https://github.com/adishavit/argh
+    GIT_TAG c3f0d8c8a6dacb00df626b409248a34e3bcd15f5
+)
+FetchContent_Declare(cpp-terminal
+    GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
+    GIT_TAG dfb5ddf47dca73ce3cb51e3b8a80f2485bb74dff
+)
+FetchContent_Declare(simde
+    GIT_REPOSITORY https://github.com/simd-everywhere/simde
+    GIT_TAG 7da3fb1d7f9ad859290f7141403036c3c90bf668
+)
+
+FetchContent_MakeAvailable(argh cpp-terminal)
+FetchContent_GetProperties(simde)
+if(NOT simde_POPULATED)
+    FetchContent_Populate(simde)
+endif()
+set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
 set(PROJECT_SOURCES
     main.cxx
@@ -60,7 +79,7 @@ add_executable(goof2
 target_include_directories(goof2 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/simde
+    ${SIMDE_INCLUDE_DIR}
 )
 
 target_link_libraries(goof2 PRIVATE

@@ -6,7 +6,7 @@ add_executable(vm_execute_tests
 target_include_directories(vm_execute_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/simde
+    ${SIMDE_INCLUDE_DIR}
 )
 
 target_link_libraries(vm_execute_tests PRIVATE
@@ -24,7 +24,7 @@ add_executable(vm_execute_fuzz
 target_include_directories(vm_execute_fuzz PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/simde
+    ${SIMDE_INCLUDE_DIR}
 )
 
 target_link_libraries(vm_execute_fuzz PRIVATE
