@@ -1,10 +1,6 @@
 /*
     Goof2 - An optimizing brainfuck VM
-    Version 1.4.0
-
-    Made by M.K.
-    Co-vibed by ChatGPT 5 Thinking :3
-    2023-2025
+    Main standalone file
     Published under the GNU AGPL-3.0-or-later license
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later
