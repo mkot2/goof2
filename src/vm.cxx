@@ -1,4 +1,10 @@
-#include "vm.hpp"
+/*
+    Goof - An optimizing brainfuck VM
+    VM implementation
+    Published under the GNU AGPL-3.0-or-later license
+*/
+// SPDX-License-Identifier: AGPL-3.0-or-later
+#include "vm.hxx"
 
 #include <algorithm>
 #include <array>

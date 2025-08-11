@@ -4,7 +4,7 @@
     Published under the GNU AGPL-3.0-or-later license
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#include "repl.hpp"
+#include "repl.hxx"
 
 #include <algorithm>
 #include <sstream>
@@ -19,7 +19,7 @@
 #include "cpp-terminal/terminal.hpp"
 #include "cpp-terminal/window.hpp"
 #include "cpp-terminal/terminfo.hpp"
-#include "include/vm.hpp"
+#include "include/vm.hxx"
 
 namespace {
 bool supports_color() {

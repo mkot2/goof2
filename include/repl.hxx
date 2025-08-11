@@ -1,3 +1,9 @@
+/*
+    Goof - An optimizing brainfuck VM
+    REPL API declarations
+    Published under the GNU AGPL-3.0-or-later license
+*/
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 #include <cstdint>
 #include <iostream>

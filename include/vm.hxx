@@ -1,3 +1,9 @@
+/*
+    Goof - An optimizing brainfuck VM
+    VM API declarations
+    Published under the GNU AGPL-3.0-or-later license
+*/
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 #define BFVMCPP_DEFAULT_EOF_BEHAVIOUR 0
 #define BFVMCPP_DYNAMIC_CELLS_SIZE 1
