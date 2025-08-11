@@ -16,8 +16,8 @@
 
 namespace bfvmcpp {
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
-/// @param cells Vector of byte cells. Other sizes aren't, and probably won't be supported, because
-/// of SIMD.
+/// @tparam CellT Cell width type (uint8_t, uint16_t, uint32_t)
+/// @param cells Vector of cells of type CellT.
 /// @param cellPtr
 /// @param code Remember that this will be modified, so if you need to do something else with your
 /// plaintext code, make a copy.
@@ -35,7 +35,8 @@ namespace bfvmcpp {
 /// growth strategy, a Fibonacci-sized expansion scheme and a page-sized allocation
 /// model for better performance on large tape sizes.
 /// @return
-int execute(std::vector<uint8_t>& cells, size_t& cellPtr, std::string& code,
+template <typename CellT>
+int execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
             bool optimize = BFVMCPP_OPTIMIZE, int eof = BFVMCPP_DEFAULT_EOF_BEHAVIOUR,
             bool dynamicSize = BFVMCPP_DYNAMIC_CELLS_SIZE, bool term = BFVMCPP_DEFAULT_SAVE_STATE);
 }  // namespace bfvmcpp

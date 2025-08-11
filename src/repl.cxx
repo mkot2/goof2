@@ -67,8 +67,9 @@ void appendLines(std::vector<std::string>& log, const std::string& text) {
     }
 }
 
+template <typename CellT>
 std::string render(Term::Window& scr, const std::vector<std::string>& log, const std::string& input,
-                   size_t cellPtr, uint8_t cellVal) {
+                   size_t cellPtr, CellT cellVal) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
     scr.clear();
@@ -118,7 +119,8 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
 }
 }  // namespace
 
-void runRepl(std::vector<uint8_t>& cells, size_t& cellPtr, size_t ts, bool optimize, int eof,
+template <typename CellT>
+void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimize, int eof,
              bool dynamicSize) {
     Term::terminal.setOptions(Term::Option::ClearScreen, Term::Option::NoSignalKeys,
                               Term::Option::Raw);
@@ -130,12 +132,12 @@ void runRepl(std::vector<uint8_t>& cells, size_t& cellPtr, size_t ts, bool optim
     std::size_t historyIndex = 0;
     bool on = true;
     while (on) {
-        Term::cout << render(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
+        Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
             termSize = ev;
             scr = Term::Window(termSize);
-            Term::cout << render(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
+            Term::cout << render<CellT>(scr, log, input, cellPtr, cells[cellPtr]) << std::flush;
             continue;
         }
         Term::Key key = ev;
@@ -153,14 +155,14 @@ void runRepl(std::vector<uint8_t>& cells, size_t& cellPtr, size_t ts, bool optim
                 log.clear();
             } else if (input == "dump") {
                 std::ostringstream oss;
-                dumpMemory(cells, cellPtr, oss);
+                dumpMemory<CellT>(cells, cellPtr, oss);
                 appendLines(log, oss.str());
             } else if (input == "help") {
                 log.push_back("Commands: help, dump, clear, exit/quit");
             } else if (!input.empty()) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
-                executeExcept(cells, cellPtr, input, optimize, eof, dynamicSize, true);
+                executeExcept<CellT>(cells, cellPtr, input, optimize, eof, dynamicSize, true);
                 std::cout.rdbuf(oldbuf);
                 appendLines(log, oss.str());
             }
@@ -186,3 +188,7 @@ void runRepl(std::vector<uint8_t>& cells, size_t& cellPtr, size_t ts, bool optim
     }
     Term::terminal.setOptions(Term::Option::Cooked, Term::Option::SignalKeys, Term::Option::Cursor);
 }
+
+template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, bool, int, bool);
+template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, bool, int, bool);
+template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, bool, int, bool);
