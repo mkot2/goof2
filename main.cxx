@@ -51,6 +51,8 @@ int main(int argc, char* argv[]) {
     cmdl("eof", 0) >> eof;
     int tsArg = 0;
     cmdl("ts", 30000) >> tsArg;
+    int maxTsArg = 0;
+    cmdl("max-ts", 0) >> maxTsArg;
     int cwArg = 8;
     cmdl("cw", 8) >> cwArg;
     if (tsArg <= 0) {
@@ -59,7 +61,14 @@ int main(int argc, char* argv[]) {
                   << " Tape size must be positive; using default 30000" << std::endl;
         tsArg = 30000;
     }
+    if (maxTsArg > 0 && maxTsArg < tsArg) {
+        std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
+                  << Term::color_fg(Term::Color::Name::Default)
+                  << " Max tape size must be >= tape size; using " << tsArg << std::endl;
+        maxTsArg = tsArg;
+    }
     size_t ts = static_cast<size_t>(tsArg);
+    size_t maxTs = static_cast<size_t>(maxTsArg);
     size_t cellPtr = 0;
 
     auto run = [&](auto dummy) {
@@ -83,12 +92,12 @@ int main(int argc, char* argv[]) {
                               << Term::color_fg(Term::Color::Name::Default)
                               << " Error while reading file";
                 } else {
-                    executeExcept<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize);
+                    executeExcept<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, maxTs);
                     if (dumpMemoryFlag) dumpMemory<CellT>(cells, cellPtr);
                 }
             }
         } else {
-            runRepl<CellT>(cells, cellPtr, ts, optimize, eof, dynamicSize);
+            runRepl<CellT>(cells, cellPtr, ts, maxTs, optimize, eof, dynamicSize);
         }
     };
 

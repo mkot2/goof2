@@ -15,7 +15,7 @@ static std::string run(std::string code, std::vector<uint8_t>& cells, size_t& ce
     auto* cinbuf = std::cin.rdbuf(in.rdbuf());
     auto* coutbuf = std::cout.rdbuf(out.rdbuf());
     std::cin.clear();
-    int ret = bfvmcpp::execute<uint8_t>(cells, cellPtr, code, true, eof, dynamicSize, false);
+    int ret = bfvmcpp::execute<uint8_t>(cells, cellPtr, code, true, eof, dynamicSize, 0, false);
     if (retOut) *retOut = ret;
     std::cin.rdbuf(cinbuf);
     std::cout.rdbuf(coutbuf);

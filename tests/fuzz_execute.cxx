@@ -60,7 +60,7 @@ int main() {
         auto *coutbuf = std::cout.rdbuf(out.rdbuf());
         std::cin.clear();
         try {
-            bfvmcpp::execute<uint8_t>(cells, ptr, code, true, 0, true, false);
+            bfvmcpp::execute<uint8_t>(cells, ptr, code, true, 0, true, 0, false);
         } catch (...) {
         }
         std::cin.rdbuf(cinbuf);

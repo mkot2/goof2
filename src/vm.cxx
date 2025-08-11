@@ -407,7 +407,7 @@ enum class MemoryModel { Contiguous, Paged, Fibonacci };
 
 template <typename CellT, bool Dynamic, bool Term>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                int eof, MemoryModel model) {
+                int eof, size_t maxTs, MemoryModel model) {
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -649,6 +649,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     size_t fibA = cells.size(), fibB = cells.size();
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         size_t needed = static_cast<size_t>(neededIndex + 1);
+        if (maxTs && needed > maxTs) return false;
         switch (model) {
             case MemoryModel::Paged: {
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
@@ -670,6 +671,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         }
         cellBase = cells.data();
         cell = cellBase + currentCell;
+        return true;
     };
 
     // Really not my fault if we die here
@@ -680,13 +682,18 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     goto *insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
-#define EXPAND_IF_NEEDED()                                         \
-    if (insp->offset > 0) {                                        \
-        const ptrdiff_t currentCell = cell - cellBase;             \
-        const ptrdiff_t neededIndex = currentCell + insp->offset;  \
-        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) { \
-            ensure(currentCell, neededIndex);                      \
-        }                                                          \
+#define EXPAND_IF_NEEDED()                                                \
+    if (insp->offset > 0) {                                               \
+        const ptrdiff_t currentCell = cell - cellBase;                    \
+        const ptrdiff_t neededIndex = currentCell + insp->offset;         \
+        if (neededIndex >= static_cast<ptrdiff_t>(cells.size())) {        \
+            if (!ensure(currentCell, neededIndex)) {                      \
+                cellPtr = static_cast<size_t>(currentCell);               \
+                std::cerr << "cell pointer moved beyond limit"           \
+                          << std::endl;                                   \
+                return -1;                                                \
+            }                                                             \
+        }                                                                 \
     }
 #define OFFCELL() *(cell + insp->offset)
 #define OFFCELLP() *(cell + insp->offset + insp->data)
@@ -710,7 +717,11 @@ _PTR_MOV: {
     }
     if (newIndex >= static_cast<ptrdiff_t>(cells.size())) {
         if constexpr (Dynamic) {
-            ensure(currentCell, newIndex);
+            if (!ensure(currentCell, newIndex)) {
+                cellPtr = currentCell;
+                std::cerr << "cell pointer moved beyond limit" << std::endl;
+                return -1;
+            }
         } else {
             cellPtr = currentCell;
             std::cerr << "cell pointer moved beyond end" << std::endl;
@@ -779,7 +790,11 @@ _SCN_RGT: {
     if constexpr (Dynamic) {
         while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size())) {
             const ptrdiff_t rel = cell - cellBase;
-            ensure(rel, rel + 64);
+            if (!ensure(rel, rel + 64)) {
+                cellPtr = static_cast<size_t>(rel);
+                std::cerr << "cell pointer moved beyond limit" << std::endl;
+                return -1;
+            }
         }
     }
 
@@ -813,7 +828,11 @@ _SCN_RGT: {
         if constexpr (Dynamic) {
             // grow and continue the scan into new space
             const ptrdiff_t rel = cell - cellBase;
-            ensure(rel, rel);
+            if (!ensure(rel, rel)) {
+                cellPtr = static_cast<size_t>(rel);
+                std::cerr << "cell pointer moved beyond limit" << std::endl;
+                return -1;
+            }
             continue;
         } else {
             cell = end - 1;
@@ -891,7 +910,7 @@ _END:
 
 template <typename CellT>
 int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                     int eof, bool dynamicSize, bool term) {
+                     int eof, bool dynamicSize, size_t maxTs, bool term) {
     int ret = 0;
     MemoryModel model = MemoryModel::Contiguous;
     // Heuristic: small tapes use contiguous doubling, medium tapes use
@@ -904,18 +923,22 @@ int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& co
             model = MemoryModel::Fibonacci;
     }
     if (dynamicSize) {
-        term ? ret = executeImpl<CellT, true, true>(cells, cellPtr, code, optimize, eof, model)
-             : ret = executeImpl<CellT, true, false>(cells, cellPtr, code, optimize, eof, model);
+        term ? ret = executeImpl<CellT, true, true>(cells, cellPtr, code, optimize, eof, maxTs,
+                                                   model)
+             : ret = executeImpl<CellT, true, false>(cells, cellPtr, code, optimize, eof, maxTs,
+                                                    model);
     } else {
-        term ? ret = executeImpl<CellT, false, true>(cells, cellPtr, code, optimize, eof, model)
-             : ret = executeImpl<CellT, false, false>(cells, cellPtr, code, optimize, eof, model);
+        term ? ret = executeImpl<CellT, false, true>(cells, cellPtr, code, optimize, eof, maxTs,
+                                                    model)
+             : ret = executeImpl<CellT, false, false>(cells, cellPtr, code, optimize, eof, maxTs,
+                                                     model);
     }
     return ret;
 }
 
 template int bfvmcpp::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int,
-                                       bool, bool);
+                                       bool, size_t, bool);
 template int bfvmcpp::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
-                                        bool, bool);
+                                        bool, size_t, bool);
 template int bfvmcpp::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
-                                        bool, bool);
+                                        bool, size_t, bool);

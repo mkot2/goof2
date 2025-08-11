@@ -15,8 +15,8 @@
 #include "vm.hxx"
 
 template <typename CellT>
-void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, bool optimize, int eof,
-             bool dynamicSize);
+void runRepl(std::vector<CellT>& cells, size_t& cellPtr, size_t ts, size_t maxTs, bool optimize,
+             int eof, bool dynamicSize);
 
 template <typename CellT>
 inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
@@ -50,8 +50,10 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
 
 template <typename CellT>
 inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
-                          bool optimize, int eof, bool dynamicSize, bool term = false) {
-    int ret = bfvmcpp::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term);
+                          bool optimize, int eof, bool dynamicSize, size_t maxTs,
+                          bool term = false) {
+    int ret = bfvmcpp::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, maxTs,
+                                      term);
     switch (ret) {
         case 1:
             std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
@@ -66,6 +68,9 @@ inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::strin
     }
 }
 
-extern template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, bool, int, bool);
-extern template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, bool, int, bool);
-extern template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, bool, int, bool);
+extern template void runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, size_t, size_t, bool, int,
+                                      bool);
+extern template void runRepl<uint16_t>(std::vector<uint16_t>&, size_t&, size_t, size_t, bool,
+                                       int, bool);
+extern template void runRepl<uint32_t>(std::vector<uint32_t>&, size_t&, size_t, size_t, bool,
+                                       int, bool);
