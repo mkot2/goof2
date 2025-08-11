@@ -1,5 +1,5 @@
 /*
-    Goof - An optimizing brainfuck VM
+    Goof2 - An optimizing brainfuck VM
     REPL API declarations
     Published under the GNU AGPL-3.0-or-later license
 */
@@ -10,6 +10,7 @@
 #include <ostream>
 #include <string>
 #include <vector>
+
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/style.hpp"
 #include "vm.hxx"
@@ -30,8 +31,7 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
         --lastNonEmpty;
     }
     out << "Memory dump:" << '\n'
-        << Term::Style::Underline
-        << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |"
+        << Term::Style::Underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |"
         << Term::Style::Reset << std::endl;
     size_t end = std::max(lastNonEmpty, std::min(cellPtr, cells.size() - 1));
     for (size_t i = 0, row = 0; i <= end; ++i) {
@@ -41,7 +41,7 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
             row += 10;
         }
         out << (i == cellPtr ? Term::color_fg(Term::Color::Name::Green)
-                              : Term::color_fg(Term::Color::Name::Default))
+                             : Term::color_fg(Term::Color::Name::Default))
             << +cells[i] << Term::color_fg(Term::Color::Name::Default)
             << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
     }
@@ -51,16 +51,16 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
 template <typename CellT>
 inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
                           bool optimize, int eof, bool dynamicSize, bool term = false) {
-    int ret = bfvmcpp::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term);
+    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term);
     switch (ret) {
         case 1:
-            std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                      << Term::color_fg(Term::Color::Name::Default)
+            std::cout << Term::color_fg(Term::Color::Name::Red)
+                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                       << " Unmatched close bracket";
             break;
         case 2:
-            std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                      << Term::color_fg(Term::Color::Name::Default)
+            std::cout << Term::color_fg(Term::Color::Name::Red)
+                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                       << " Unmatched open bracket";
             break;
     }

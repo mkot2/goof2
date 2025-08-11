@@ -1,4 +1,3 @@
-#include "vm.hxx"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -7,15 +6,17 @@
 #include <string>
 #include <vector>
 
+#include "vm.hxx"
+
 static std::string run(std::string code, std::vector<uint8_t>& cells, size_t& cellPtr,
-                       const std::string& input = "", int eof = 0,
-                       bool dynamicSize = true, int* retOut = nullptr) {
+                       const std::string& input = "", int eof = 0, bool dynamicSize = true,
+                       int* retOut = nullptr) {
     std::istringstream in(input);
     std::ostringstream out;
     auto* cinbuf = std::cin.rdbuf(in.rdbuf());
     auto* coutbuf = std::cout.rdbuf(out.rdbuf());
     std::cin.clear();
-    int ret = bfvmcpp::execute<uint8_t>(cells, cellPtr, code, true, eof, dynamicSize, false);
+    int ret = goof2::execute<uint8_t>(cells, cellPtr, code, true, eof, dynamicSize, false);
     if (retOut) *retOut = ret;
     std::cin.rdbuf(cinbuf);
     std::cout.rdbuf(coutbuf);

@@ -1,4 +1,4 @@
-# bfvmcpp
+# goof2
 An all-in-one Brainfuck development tool/VM
 
 ## Building
@@ -46,7 +46,7 @@ The VM supports selectable cell widths. Use the `--cw` option to choose 8-, 16- 
 cells at startup:
 
 ```sh
-./goof --cw 16 program.bf
+./goof2 --cw 16 program.bf
 ```
 
 ## Memory models
