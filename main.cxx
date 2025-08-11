@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include "argh.hxx"
+#include "argh.h"
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/style.hpp"
 #include "include/vm.hxx"

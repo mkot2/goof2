@@ -34,6 +34,15 @@ target_compile_options(Warnings INTERFACE
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
 )
 
+# Disable building tests, examples, docs, and install rules for submodules
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CPPTERMINAL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CPPTERMINAL_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(CPPTERMINAL_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+set(CPPTERMINAL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(argh)
 add_subdirectory(cpp-terminal)
 
 set(PROJECT_SOURCES
@@ -51,10 +60,12 @@ add_executable(goof2
 target_include_directories(goof2 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/simde
 )
 
 target_link_libraries(goof2 PRIVATE
     cpp-terminal::cpp-terminal
+    argh
     Warnings
 )
 
