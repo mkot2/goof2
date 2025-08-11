@@ -30,6 +30,24 @@
 #define GOOF2_HAS_OS_VM 0
 #endif
 
+#if GOOF2_HAS_OS_VM
+namespace goof2 {
+#ifdef _WIN32
+static void* default_os_alloc(size_t bytes) {
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+}
+static void default_os_free(void* ptr, size_t) { VirtualFree(ptr, 0, MEM_RELEASE); }
+#else
+static void* default_os_alloc(size_t bytes) {
+    return mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+}
+static void default_os_free(void* ptr, size_t bytes) { munmap(ptr, bytes); }
+#endif
+void* (*os_alloc)(size_t) = default_os_alloc;
+void (*os_free)(void*, size_t) = default_os_free;
+}  // namespace goof2
+#endif
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -711,28 +729,23 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     size_t osSize = cells.size();
 #if GOOF2_HAS_OS_VM
     if (model == MemoryModel::OSBacked) {
+        void* ptr = goof2::os_alloc(osSize * sizeof(CellT));
 #ifdef _WIN32
-        CellT* osMem = static_cast<CellT*>(VirtualAlloc(nullptr, osSize * sizeof(CellT),
-                                                        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (osMem) {
-            std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
-            cellBase = osMem;
-            cell = cellBase + cellPtr;
-        } else {
-            model = MemoryModel::Contiguous;
-        }
+        if (ptr)
 #else
-        void* ptr = mmap(nullptr, osSize * sizeof(CellT), PROT_READ | PROT_WRITE,
-                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (ptr != MAP_FAILED) {
+        if (ptr != MAP_FAILED)
+#endif
+        {
             CellT* osMem = static_cast<CellT*>(ptr);
             std::memcpy(osMem, cellBase, osSize * sizeof(CellT));
             cellBase = osMem;
             cell = cellBase + cellPtr;
         } else {
+            std::cerr
+                << "warning: OS-backed allocation failed, falling back to contiguous memory model"
+                << std::endl;
             model = MemoryModel::Contiguous;
         }
-#endif
     }
 #endif
 
@@ -755,45 +768,39 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             if (target == MemoryModel::OSBacked) {
 #if GOOF2_HAS_OS_VM
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+                void* nptr = goof2::os_alloc(newSize * sizeof(CellT));
 #ifdef _WIN32
-                CellT* newMem = static_cast<CellT*>(VirtualAlloc(
-                    nullptr, newSize * sizeof(CellT), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-                if (!newMem) throw std::bad_alloc();
+                bool ok = nptr != nullptr;
 #else
-                void* nptr = mmap(nullptr, newSize * sizeof(CellT), PROT_READ | PROT_WRITE,
-                                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-                if (nptr == MAP_FAILED) throw std::bad_alloc();
-                CellT* newMem = static_cast<CellT*>(nptr);
+                bool ok = nptr != MAP_FAILED;
 #endif
-                std::memcpy(
-                    newMem, cellBase,
-                    (model == MemoryModel::OSBacked ? osSize : cells.size()) * sizeof(CellT));
-                if (model == MemoryModel::OSBacked) {
-#ifdef _WIN32
-                    VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-                    munmap(cellBase, osSize * sizeof(CellT));
-#endif
+                if (ok) {
+                    CellT* newMem = static_cast<CellT*>(nptr);
+                    std::memcpy(
+                        newMem, cellBase,
+                        (model == MemoryModel::OSBacked ? osSize : cells.size()) * sizeof(CellT));
+                    if (model == MemoryModel::OSBacked) {
+                        goof2::os_free(cellBase, osSize * sizeof(CellT));
+                    } else {
+                        std::vector<CellT>().swap(cells);
+                    }
+                    cellBase = newMem;
+                    osSize = newSize;
+                    model = MemoryModel::OSBacked;
+                    fibA = fibB = osSize;
                 } else {
-                    std::vector<CellT>().swap(cells);
+                    std::cerr << "warning: OS-backed allocation failed, falling back to contiguous "
+                                 "memory model"
+                              << std::endl;
+                    model = MemoryModel::Contiguous;
                 }
-                cellBase = newMem;
-                osSize = newSize;
-                model = MemoryModel::OSBacked;
-                fibA = fibB = osSize;
 #endif
             } else {
                 if (model == MemoryModel::OSBacked) {
                     size_t oldSize = osSize;
                     cells.resize(oldSize);
                     std::memcpy(cells.data(), cellBase, oldSize * sizeof(CellT));
-#if GOOF2_HAS_OS_VM
-#ifdef _WIN32
-                    VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-                    munmap(cellBase, osSize * sizeof(CellT));
-#endif
-#endif
+                    goof2::os_free(cellBase, osSize * sizeof(CellT));
                     cellBase = cells.data();
                 }
                 model = target;
@@ -805,25 +812,29 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 #if GOOF2_HAS_OS_VM
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
                 if (newSize > osSize) {
+                    void* nptr = goof2::os_alloc(newSize * sizeof(CellT));
 #ifdef _WIN32
-                    CellT* newMem =
-                        static_cast<CellT*>(VirtualAlloc(nullptr, newSize * sizeof(CellT),
-                                                         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-                    if (!newMem) throw std::bad_alloc();
+                    bool ok = nptr != nullptr;
 #else
-                    void* nptr = mmap(nullptr, newSize * sizeof(CellT), PROT_READ | PROT_WRITE,
-                                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-                    if (nptr == MAP_FAILED) throw std::bad_alloc();
-                    CellT* newMem = static_cast<CellT*>(nptr);
+                    bool ok = nptr != MAP_FAILED;
 #endif
-                    std::memcpy(newMem, cellBase, osSize * sizeof(CellT));
-#ifdef _WIN32
-                    VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-                    munmap(cellBase, osSize * sizeof(CellT));
-#endif
-                    cellBase = newMem;
-                    osSize = newSize;
+                    if (ok) {
+                        CellT* newMem = static_cast<CellT*>(nptr);
+                        std::memcpy(newMem, cellBase, osSize * sizeof(CellT));
+                        goof2::os_free(cellBase, osSize * sizeof(CellT));
+                        cellBase = newMem;
+                        osSize = newSize;
+                    } else {
+                        std::cerr << "warning: OS-backed allocation failed, falling back to "
+                                     "contiguous memory model"
+                                  << std::endl;
+                        cells.resize(newSize);
+                        std::memcpy(cells.data(), cellBase, osSize * sizeof(CellT));
+                        goof2::os_free(cellBase, osSize * sizeof(CellT));
+                        cellBase = cells.data();
+                        osSize = cells.size();
+                        model = MemoryModel::Contiguous;
+                    }
                 }
                 break;
 #else
@@ -1069,11 +1080,7 @@ _END: {
 #if GOOF2_HAS_OS_VM
     if (model == MemoryModel::OSBacked && cellBase != cells.data()) {
         cells.assign(cellBase, cellBase + osSize);
-#ifdef _WIN32
-        VirtualFree(cellBase, 0, MEM_RELEASE);
-#else
-        munmap(cellBase, osSize * sizeof(CellT));
-#endif
+        goof2::os_free(cellBase, osSize * sizeof(CellT));
         cellBase = cells.data();
     }
 #endif
