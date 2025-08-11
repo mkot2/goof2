@@ -15,6 +15,7 @@ elseif(MINGW)
 endif()
 
 option(BUILD_COVERAGE "Enable coverage reporting" OFF)
+option(GOOF2_ENABLE_REPL "Enable interactive REPL" ON)
 
 if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(--coverage -O0 -g)
@@ -39,25 +40,32 @@ target_compile_options(Warnings INTERFACE
 # Disable building tests, examples, docs, and install rules for submodules
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(CPPTERMINAL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(CPPTERMINAL_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-set(CPPTERMINAL_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
-set(CPPTERMINAL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+if(GOOF2_ENABLE_REPL)
+    set(CPPTERMINAL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CPPTERMINAL_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(CPPTERMINAL_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+    set(CPPTERMINAL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+endif()
 
 FetchContent_Declare(argh
     GIT_REPOSITORY https://github.com/adishavit/argh
     GIT_TAG c3f0d8c8a6dacb00df626b409248a34e3bcd15f5
 )
-FetchContent_Declare(cpp-terminal
-    GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
-    GIT_TAG dfb5ddf47dca73ce3cb51e3b8a80f2485bb74dff
-)
+if(GOOF2_ENABLE_REPL)
+    FetchContent_Declare(cpp-terminal
+        GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
+        GIT_TAG dfb5ddf47dca73ce3cb51e3b8a80f2485bb74dff
+    )
+endif()
 FetchContent_Declare(simde
     GIT_REPOSITORY https://github.com/simd-everywhere/simde
     GIT_TAG 7da3fb1d7f9ad859290f7141403036c3c90bf668
 )
 
-FetchContent_MakeAvailable(argh cpp-terminal)
+FetchContent_MakeAvailable(argh)
+if(GOOF2_ENABLE_REPL)
+    FetchContent_MakeAvailable(cpp-terminal)
+endif()
 FetchContent_GetProperties(simde)
 if(NOT simde_POPULATED)
     FetchContent_Populate(simde)
@@ -68,9 +76,13 @@ set(PROJECT_SOURCES
     main.cxx
     src/vm.cxx
     include/vm.hxx
-    src/repl.cxx
-    include/repl.hxx
 )
+if(GOOF2_ENABLE_REPL)
+    list(APPEND PROJECT_SOURCES
+        src/repl.cxx
+        include/repl.hxx
+    )
+endif()
 
 add_executable(goof2
     ${PROJECT_SOURCES}
@@ -83,10 +95,13 @@ target_include_directories(goof2 PRIVATE
 )
 
 target_link_libraries(goof2 PRIVATE
-    cpp-terminal::cpp-terminal
     argh
     Warnings
 )
+if(GOOF2_ENABLE_REPL)
+    target_link_libraries(goof2 PRIVATE cpp-terminal::cpp-terminal)
+    target_compile_definitions(goof2 PRIVATE GOOF2_ENABLE_REPL)
+endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(goof2 PRIVATE
