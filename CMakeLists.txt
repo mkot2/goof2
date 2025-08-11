@@ -88,6 +88,27 @@ target_link_libraries(goof2 PRIVATE
     Warnings
 )
 
+install(TARGETS goof2
+    EXPORT goof2Targets
+    RUNTIME DESTINATION bin
+)
+
+install(FILES include/*.hxx DESTINATION include/goof2)
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(cmake/goof2Config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/goof2Config.cmake
+    INSTALL_DESTINATION lib/cmake/goof2
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/goof2Config.cmake
+    DESTINATION lib/cmake/goof2
+)
+install(EXPORT goof2Targets
+    FILE goof2Targets.cmake
+    NAMESPACE goof2::
+    DESTINATION lib/cmake/goof2
+)
+
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(goof2 PRIVATE
         $<$<CONFIG:Release>:-Ofast>
