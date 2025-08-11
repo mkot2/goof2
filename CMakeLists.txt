@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(bfvmcpp LANGUAGES CXX)
+project(goof2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,22 +44,22 @@ set(PROJECT_SOURCES
     include/repl.hxx
 )
 
-add_executable(bfvmcpp
+add_executable(goof2
     ${PROJECT_SOURCES}
 )
 
-target_include_directories(bfvmcpp PRIVATE
+target_include_directories(goof2 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(bfvmcpp PRIVATE
+target_link_libraries(goof2 PRIVATE
     cpp-terminal::cpp-terminal
     Warnings
 )
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(bfvmcpp PRIVATE
+    target_compile_options(goof2 PRIVATE
         $<$<CONFIG:Release>:-Ofast>
         $<$<CONFIG:Release>:-march=native>
         $<$<CONFIG:Release>:-funroll-loops>
@@ -69,12 +69,12 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         $<$<CONFIG:Release>:-ffunction-sections>
         $<$<CONFIG:Release>:-fdata-sections>
     )
-    target_link_options(bfvmcpp PRIVATE
+    target_link_options(goof2 PRIVATE
         $<$<CONFIG:Release>:-flto>
         $<$<CONFIG:Release>:-Wl,--gc-sections>
         $<$<CONFIG:Release>:-s>
     )
-    set_property(TARGET bfvmcpp PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    set_property(TARGET goof2 PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)

@@ -1,5 +1,5 @@
 /*
-    Goof - An optimizing brainfuck VM
+    Goof2 - An optimizing brainfuck VM
     VM implementation
     Published under the GNU AGPL-3.0-or-later license
 */
@@ -25,9 +25,9 @@
 #endif
 
 #if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
-#define BFVMCPP_HAS_OS_VM 1
+#define GOOF2_HAS_OS_VM 1
 #else
-#define BFVMCPP_HAS_OS_VM 0
+#define GOOF2_HAS_OS_VM 0
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -709,7 +709,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     CellT* cellBase = cells.data();
     CellT* cell = cellBase + cellPtr;
     size_t osSize = cells.size();
-#if BFVMCPP_HAS_OS_VM
+#if GOOF2_HAS_OS_VM
     if (model == MemoryModel::OSBacked) {
 #ifdef _WIN32
         CellT* osMem = static_cast<CellT*>(VirtualAlloc(nullptr, osSize * sizeof(CellT),
@@ -744,7 +744,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         size_t needed = static_cast<size_t>(neededIndex + 1);
         switch (model) {
             case MemoryModel::OSBacked: {
-#if BFVMCPP_HAS_OS_VM
+#if GOOF2_HAS_OS_VM
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
                 if (newSize > osSize) {
 #ifdef _WIN32
@@ -1007,7 +1007,7 @@ _SCN_LFT: {
 
 _END: {
     ptrdiff_t finalIndex = cell - cellBase;
-#if BFVMCPP_HAS_OS_VM
+#if GOOF2_HAS_OS_VM
     if (model == MemoryModel::OSBacked && cellBase != cells.data()) {
         cells.assign(cellBase, cellBase + osSize);
 #ifdef _WIN32
@@ -1028,8 +1028,8 @@ _END: {
 }
 
 template <typename CellT>
-int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                     int eof, bool dynamicSize, bool term) {
+int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
+                   int eof, bool dynamicSize, bool term) {
     int ret = 0;
     MemoryModel model = MemoryModel::Contiguous;
     // Heuristic: small tapes use contiguous doubling, medium tapes use
@@ -1037,7 +1037,7 @@ int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& co
     // switch to fixed-size paged allocation, and very large tapes use
     // OS-backed virtual memory when available.
     if (dynamicSize) {
-#if BFVMCPP_HAS_OS_VM
+#if GOOF2_HAS_OS_VM
         if (cells.size() > (1u << 28))
             model = MemoryModel::OSBacked;
         else
@@ -1057,11 +1057,11 @@ int bfvmcpp::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& co
     return ret;
 }
 
-template int bfvmcpp::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int,
-                                       bool, bool);
-template int bfvmcpp::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
-                                        bool, bool);
-template int bfvmcpp::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
-                                        bool, bool);
-template int bfvmcpp::execute<uint64_t>(std::vector<uint64_t>&, size_t&, std::string&, bool, int,
-                                        bool, bool);
+template int goof2::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int, bool,
+                                     bool);
+template int goof2::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
+                                      bool, bool);
+template int goof2::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
+                                      bool, bool);
+template int goof2::execute<uint64_t>(std::vector<uint64_t>&, size_t&, std::string&, bool, int,
+                                      bool, bool);

@@ -1,5 +1,5 @@
 /*
-    Goof - An optimizing brainfuck VM
+    Goof2 - An optimizing brainfuck VM
     Version 1.4.0
 
     Made by M.K.
@@ -17,9 +17,9 @@
 #include <vector>
 
 #include "argh.hxx"
-#include "include/vm.hxx"
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/style.hpp"
+#include "include/vm.hxx"
 #include "repl.hxx"
 
 #ifdef _WIN32
@@ -54,8 +54,8 @@ int main(int argc, char* argv[]) {
     int cwArg = 8;
     cmdl("cw", 8) >> cwArg;
     if (tsArg <= 0) {
-        std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                  << Term::color_fg(Term::Color::Name::Default)
+        std::cout << Term::color_fg(Term::Color::Name::Red)
+                  << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                   << " Tape size must be positive; using default 30000" << std::endl;
         tsArg = 30000;
     }
@@ -72,15 +72,15 @@ int main(int argc, char* argv[]) {
         if (!filename.empty()) {
             std::ifstream in(filename, std::ios::binary);
             if (!in.is_open()) {
-                std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                          << Term::color_fg(Term::Color::Name::Default)
+                std::cout << Term::color_fg(Term::Color::Name::Red)
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                           << " File could not be opened";
             } else {
                 std::string code((std::istreambuf_iterator<char>(in)),
                                  std::istreambuf_iterator<char>());
                 if (!in && !in.eof()) {
-                    std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                              << Term::color_fg(Term::Color::Name::Default)
+                    std::cout << Term::color_fg(Term::Color::Name::Red)
+                              << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                               << " Error while reading file";
                 } else {
                     executeExcept<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize);
@@ -106,8 +106,8 @@ int main(int argc, char* argv[]) {
             run(uint64_t{});
             break;
         default:
-            std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
-                      << Term::color_fg(Term::Color::Name::Default)
+            std::cout << Term::color_fg(Term::Color::Name::Red)
+                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                       << " Unsupported cell width; use 8,16,32,64" << std::endl;
             return 1;
     }
