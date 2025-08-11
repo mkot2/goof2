@@ -16,9 +16,54 @@
 #include "cpp-terminal/style.hpp"
 #include "cpp-terminal/terminal.hpp"
 #include "cpp-terminal/window.hpp"
+#include "cpp-terminal/terminfo.hpp"
 #include "include/vm.hpp"
 
 namespace {
+bool supports_color() {
+    using Term::Terminfo;
+    return Terminfo::get(Terminfo::Bool::ControlSequences) &&
+           Terminfo::getColorMode() != Terminfo::ColorMode::NoColor &&
+           Terminfo::getColorMode() != Terminfo::ColorMode::Unset;
+}
+
+std::string highlight_bf(const std::string& code) {
+    if (!supports_color()) return code;
+    std::string result;
+    result.reserve(code.size() * 8);
+    for (char c : code) {
+        Term::Color::Name color;
+        bool token = true;
+        switch (c) {
+            case '>':
+            case '<':
+                color = Term::Color::Name::Cyan;
+                break;
+            case '+':
+            case '-':
+                color = Term::Color::Name::Yellow;
+                break;
+            case '[':
+            case ']':
+                color = Term::Color::Name::Magenta;
+                break;
+            case '.':
+            case ',':
+                color = Term::Color::Name::Green;
+                break;
+            default:
+                token = false;
+        }
+        if (token) {
+            result += Term::color_fg(color);
+            result.push_back(c);
+            result += Term::color_fg(Term::Color::Name::Default);
+        } else {
+            result.push_back(c);
+        }
+    }
+    return result;
+}
 void append_lines(std::vector<std::string>& log, const std::string& text) {
     std::istringstream iss(text);
     for (std::string line; std::getline(iss, line);) {
@@ -38,10 +83,13 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
         scr.print_str(1, 1 + i, log[start + i]);
     }
 
-    std::string prompt = "$ " + input;
-    if (prompt.size() > cols) {
-        prompt = prompt.substr(prompt.size() - cols);
+    std::string in = input;
+    std::size_t max_input = cols > 2 ? cols - 2 : 0;
+    if (in.size() > max_input) {
+        in = in.substr(in.size() - max_input);
     }
+    std::string prompt_plain = "$ " + in;
+    std::string prompt = "$ " + highlight_bf(in);
     scr.print_str(1, rows - 1, prompt);
 
     std::string status = "ptr: " + std::to_string(cellptr) + " val: " + std::to_string(+cellval);
@@ -53,7 +101,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log, const
     scr.fill_fg(1, rows, cols, 1, Term::Color::Name::Black);
     scr.print_str(1, rows, status);
 
-    scr.set_cursor_pos(std::min(prompt.size() + 1, cols), rows - 1);
+    scr.set_cursor_pos(std::min(prompt_plain.size() + 1, cols), rows - 1);
     return scr.render(1, 1, true);
 }
 }  // namespace
@@ -73,6 +121,9 @@ void run_repl(std::vector<uint8_t>& cells, size_t& cellptr, size_t ts, bool opti
         if (key == Term::Key::Ctrl_C || key == Term::Key::Esc) {
             on = false;
         } else if (key == Term::Key::Enter) {
+            if (!input.empty()) {
+                log.push_back("$ " + highlight_bf(input));
+            }
             if (input == "exit" || input == "quit") {
                 on = false;
             } else if (input == "clear") {
