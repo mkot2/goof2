@@ -9,6 +9,7 @@ option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
+endif()
 # Default to a Release build if no build type is explicitly set.  This keeps
 # binaries small and enables the high-optimization flags defined below.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

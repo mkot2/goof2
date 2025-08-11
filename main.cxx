@@ -102,10 +102,13 @@ int main(int argc, char* argv[]) {
         case 32:
             run(uint32_t{});
             break;
+        case 64:
+            run(uint64_t{});
+            break;
         default:
             std::cout << Term::color_fg(Term::Color::Name::Red) << "ERROR:"
                       << Term::color_fg(Term::Color::Name::Default)
-                      << " Unsupported cell width; use 8,16,32" << std::endl;
+                      << " Unsupported cell width; use 8,16,32,64" << std::endl;
             return 1;
     }
 }
