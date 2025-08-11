@@ -47,6 +47,14 @@ static inline unsigned LZCNT32(unsigned x) {
 
 template <unsigned Bytes>
 static inline uint32_t strideMask32(unsigned step, unsigned phase) {
+    if constexpr (Bytes == 1) {
+        if (step == 2)
+            return 0x55555555u << phase;
+        if (step == 4)
+            return 0x11111111u << phase;
+        if (step == 8)
+            return 0x01010101u << phase;
+    }
     uint32_t m = 0;
     constexpr unsigned lanes = 32 / Bytes;
     for (unsigned i = 0; i < lanes; i++) {
@@ -65,6 +73,14 @@ static inline uint32_t strideMask32(unsigned step, unsigned phase) {
 
 template <unsigned Bytes>
 static inline uint16_t strideMask16(unsigned step, unsigned phase) {
+    if constexpr (Bytes == 1) {
+        if (step == 2)
+            return uint16_t(0x5555u << phase);
+        if (step == 4)
+            return uint16_t(0x1111u << phase);
+        if (step == 8)
+            return uint16_t(0x0101u << phase);
+    }
     uint16_t m = 0;
     constexpr unsigned lanes = 16 / Bytes;
     for (unsigned i = 0; i < lanes; i++) {
@@ -630,7 +646,6 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto cell = cells.data() + cellPtr;
     auto insp = instructions.data();
     auto cellBase = cells.data();
-    unsigned long long totalExecuted = 0;
 
     std::array<char, 1024> buffer = {0};
 
@@ -664,10 +679,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     // Really not my fault if we die here
     goto * insp->jump;
 
-#define LOOP()       \
-    totalExecuted++; \
-    insp++;          \
-    goto * insp->jump
+#define LOOP()  \
+    insp++;   \
+    goto *insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
 #define EXPAND_IF_NEEDED()                                         \
