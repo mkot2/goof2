@@ -7,6 +7,7 @@
 #include "vm.hxx"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -404,7 +405,7 @@ static void regex_replace_inplace(std::string& str, const std::regex& re, Callba
 
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                int eof, MemoryModel model, bool adaptive) {
+                int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile) {
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -790,8 +791,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     // Really not my fault if we die here
     goto * insp->jump;
 
-#define LOOP() \
-    insp++;    \
+#define LOOP()                            \
+    insp++;                               \
+    if (profile) ++profile->instructions; \
     goto * insp->jump
 // This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
 // well
@@ -1226,8 +1228,10 @@ static bool shouldUseSparse(std::string_view code) {
 
 template <typename CellT>
 int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                   int eof, bool dynamicSize, bool term, MemoryModel model) {
+                   int eof, bool dynamicSize, bool term, MemoryModel model, ProfileInfo* profile) {
     int ret = 0;
+    auto start = std::chrono::steady_clock::now();
+    if (profile) profile->instructions = 0;
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
     bool sparse = shouldUseSparse(code);
@@ -1249,36 +1253,39 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     if (dynamicSize) {
         if (sparse) {
             term ? ret = executeImpl<CellT, true, true, true>(cells, cellPtr, code, optimize, eof,
-                                                              model, adaptive)
+                                                              model, adaptive, profile)
                  : ret = executeImpl<CellT, true, false, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive);
+                                                               model, adaptive, profile);
         } else {
             term ? ret = executeImpl<CellT, true, true, false>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive)
+                                                               model, adaptive, profile)
                  : ret = executeImpl<CellT, true, false, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive);
+                                                                model, adaptive, profile);
         }
     } else {
         if (sparse) {
             term ? ret = executeImpl<CellT, false, true, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive)
+                                                               model, adaptive, profile)
                  : ret = executeImpl<CellT, false, false, true>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive);
+                                                                model, adaptive, profile);
         } else {
             term ? ret = executeImpl<CellT, false, true, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive)
+                                                                model, adaptive, profile)
                  : ret = executeImpl<CellT, false, false, false>(cells, cellPtr, code, optimize,
-                                                                 eof, model, adaptive);
+                                                                 eof, model, adaptive, profile);
         }
     }
+    if (profile)
+        profile->seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     return ret;
 }
 
 template int goof2::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int, bool,
-                                     bool, goof2::MemoryModel);
+                                     bool, goof2::MemoryModel, goof2::ProfileInfo*);
 template int goof2::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool, goof2::MemoryModel);
+                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*);
 template int goof2::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool, goof2::MemoryModel);
+                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*);
 template int goof2::execute<uint64_t>(std::vector<uint64_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool, goof2::MemoryModel);
+                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*);
