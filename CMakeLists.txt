@@ -81,7 +81,9 @@ set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
 set(VM_SOURCES
     src/vm.cxx
+    src/jit.cxx
     include/vm.hxx
+    src/jit.hxx
 )
 
 add_library(vm ${VM_SOURCES})

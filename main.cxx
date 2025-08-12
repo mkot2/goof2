@@ -302,7 +302,7 @@ int main(int argc, char* argv[]) {
     }
     return 0;
 }
-#else   // !GOOF2_ENABLE_REPL
+#else  // !GOOF2_ENABLE_REPL
 namespace {
 template <typename CellT>
 void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr) {
@@ -328,8 +328,14 @@ template <typename CellT>
 void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                    int eof, bool dynamicSize, goof2::MemoryModel model,
                    goof2::ProfileInfo* profile) {
-    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false, model,
-                                    profile);
+    int ret =
+#if GOOF2_USE_SLJIT
+        goof2::execute_jit<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false, model,
+                                  profile);
+#else
+        goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false, model,
+                              profile);
+#endif
     switch (ret) {
         case 1:
             std::cerr << "ERROR: Unmatched close bracket";
