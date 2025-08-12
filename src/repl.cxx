@@ -98,15 +98,16 @@ const char* modelName(goof2::MemoryModel m) {
     }
 }
 
-enum class MenuState { None, TapeSize, EOFVal, CellWidth };
+enum class MenuState { None, TapeSize, EOFVal, CellWidth, Search };
 
 enum class Tab { Log, Memory };
 
 template <typename CellT>
 std::string render(Term::Window& scr, const std::vector<std::string>& log,
-                   const std::vector<std::string>& dump, const std::string& input, size_t cellPtr,
-                   CellT cellVal, const ReplConfig& cfg, MenuState menuState, Tab tab,
-                   const std::string& menuInput) {
+                   const std::vector<std::string>& dump, const std::vector<CellT>& cells,
+                   const std::vector<size_t>& changed, const std::vector<size_t>& matches,
+                   const std::string& input, size_t cellPtr, CellT cellVal, const ReplConfig& cfg,
+                   MenuState menuState, Tab tab, const std::string& menuInput) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
     scr.clear();
@@ -134,6 +135,30 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         }
     }
 
+    if (tab == Tab::Memory && supportsColor()) {
+        const std::size_t yOffset = 3;
+        const std::size_t xOffset = 10;
+        const std::size_t cellStep = 4;
+        if (cfg.highlightChanges) {
+            for (size_t idx : changed) {
+                std::size_t row = idx / 10;
+                std::size_t col = idx % 10;
+                std::string val = std::to_string(cells[idx]);
+                scr.fill_bg(xOffset + col * cellStep, yOffset + row, val.size(), 1,
+                            Term::Color::Name::Yellow);
+            }
+        }
+        if (cfg.searchActive) {
+            for (size_t idx : matches) {
+                std::size_t row = idx / 10;
+                std::size_t col = idx % 10;
+                std::string val = std::to_string(cells[idx]);
+                scr.fill_bg(xOffset + col * cellStep, yOffset + row, val.size(), 1,
+                            Term::Color::Name::Magenta);
+            }
+        }
+    }
+
     scr.print_str(1, logHeight + 1, std::string(cols, '-'));
 
     for (std::size_t i = 0; i < inputLines; ++i) {
@@ -153,7 +178,10 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         " [F5]cw:" +
         (menuState == MenuState::CellWidth ? ">" + menuInput : std::to_string(cfg.cellWidth)) +
         " [F6]mm:" + modelName(cfg.model) + " [F7]" + (tab == Tab::Log ? "log*" : "log") + " [F8]" +
-        (tab == Tab::Memory ? "mem*" : "mem");
+        (tab == Tab::Memory ? "mem*" : "mem") + " [F9]chg" + " [F10]find:" +
+        (menuState == MenuState::Search
+             ? ">" + menuInput
+             : (cfg.searchActive ? std::to_string(cfg.searchValue) : ""));
     if (menu.size() < cols)
         menu += std::string(cols - menu.size(), ' ');
     else
@@ -192,6 +220,11 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     std::string menuInput;
     int newCw = 0;
     bool on = true;
+    std::vector<size_t> changed;
+    std::vector<size_t> searchMatches;
+    std::vector<CellT> prevCells = cells;
+    std::size_t changeNav = 0;
+    std::size_t searchNav = 0;
     auto resetContext = [&]() {
         cellPtr = 0;
         std::vector<CellT> newCells(cfg.tapeSize, 0);
@@ -201,6 +234,10 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
         input.clear();
         history.clear();
         historyIndex = 0;
+        prevCells = cells;
+        changed.clear();
+        searchMatches.clear();
+        changeNav = searchNav = 0;
     };
     auto refreshDump = [&]() {
         std::ostringstream oss;
@@ -209,18 +246,38 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
         dump.clear();
         for (std::string line; std::getline(iss, line);) dump.push_back(line);
     };
+    auto markChanges = [&]() {
+        changed.clear();
+        for (std::size_t i = 0; i < cells.size() && i < prevCells.size(); ++i) {
+            if (cells[i] != prevCells[i]) changed.push_back(i);
+        }
+        if (cells.size() > prevCells.size()) {
+            for (std::size_t i = prevCells.size(); i < cells.size(); ++i)
+                if (cells[i]) changed.push_back(i);
+        }
+        prevCells = cells;
+        changeNav = 0;
+    };
+    auto updateSearch = [&]() {
+        searchMatches.clear();
+        if (!cfg.searchActive) return;
+        for (std::size_t i = 0; i < cells.size(); ++i)
+            if (static_cast<uint64_t>(cells[i]) == cfg.searchValue) searchMatches.push_back(i);
+        searchNav = 0;
+    };
+    updateSearch();
     while (on) {
         if (tab == Tab::Memory) refreshDump();
-        Term::cout << render<CellT>(scr, log, dump, input, cellPtr, cells[cellPtr], cfg, menuState,
-                                    tab, menuInput)
+        Term::cout << render<CellT>(scr, log, dump, cells, changed, searchMatches, input, cellPtr,
+                                    cells[cellPtr], cfg, menuState, tab, menuInput)
                    << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
             termSize = ev;
             scr = Term::Window(termSize);
             if (tab == Tab::Memory) refreshDump();
-            Term::cout << render<CellT>(scr, log, dump, input, cellPtr, cells[cellPtr], cfg,
-                                        menuState, tab, menuInput)
+            Term::cout << render<CellT>(scr, log, dump, cells, changed, searchMatches, input,
+                                        cellPtr, cells[cellPtr], cfg, menuState, tab, menuInput)
                        << std::flush;
             continue;
         }
@@ -254,6 +311,15 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                             on = false;
                             newCw = val;
                         }
+                    } else if (menuState == MenuState::Search) {
+                        if (menuInput.empty()) {
+                            cfg.searchActive = false;
+                            searchMatches.clear();
+                        } else {
+                            cfg.searchValue = std::stoull(menuInput);
+                            cfg.searchActive = true;
+                            updateSearch();
+                        }
                     }
                 } catch (...) {
                 }
@@ -272,9 +338,11 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
         } else if (key == Term::Key::F1) {
             cfg.optimize = !cfg.optimize;
             resetContext();
+            updateSearch();
         } else if (key == Term::Key::F2) {
             cfg.dynamicSize = !cfg.dynamicSize;
             resetContext();
+            updateSearch();
         } else if (key == Term::Key::F3) {
             menuState = MenuState::TapeSize;
             menuInput.clear();
@@ -311,6 +379,19 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
             tab = Tab::Log;
         } else if (key == Term::Key::F8) {
             tab = Tab::Memory;
+        } else if (key == Term::Key::F9) {
+            if (!changed.empty()) {
+                cellPtr = changed[changeNav % changed.size()];
+                changeNav = (changeNav + 1) % changed.size();
+            }
+        } else if (key == Term::Key::F10) {
+            if (cfg.searchActive && menuState != MenuState::Search && !searchMatches.empty()) {
+                cellPtr = searchMatches[searchNav % searchMatches.size()];
+                searchNav = (searchNav + 1) % searchMatches.size();
+            } else {
+                menuState = MenuState::Search;
+                menuInput.clear();
+            }
         } else if (key == Term::Key::Enter) {
             if (!input.empty()) {
                 appendInputLines(log, input);
@@ -321,6 +402,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                 on = false;
             } else if (input == "clear") {
                 resetContext();
+                updateSearch();
             } else if (input.rfind("load ", 0) == 0) {
                 std::string path = input.substr(5);
                 path.erase(0, path.find_first_not_of(" \t"));
@@ -341,6 +423,8 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
 
                         std::cout.rdbuf(oldbuf);
                         appendLines(log, oss.str());
+                        markChanges();
+                        updateSearch();
                     }
                 }
             } else if (input == "help") {
@@ -352,6 +436,8 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                                      cfg.model, nullptr, true);
                 std::cout.rdbuf(oldbuf);
                 appendLines(log, oss.str());
+                markChanges();
+                updateSearch();
             }
             input.clear();
         } else if (key == Term::Key::ArrowUp) {
