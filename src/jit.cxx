@@ -53,7 +53,8 @@ static void regex_replace_inplace(std::string& str, const std::regex& re, Callba
 
 template <typename CellT>
 static int buildInstructions(std::string& code, bool optimize,
-                             std::vector<instruction>& instructions, std::vector<uint8_t>& ops) {
+                             std::vector<instruction>& instructions, std::vector<uint8_t>& ops,
+                             ProfileInfo* profile) {
     int copyloopCounter = 0;
     std::vector<int> copyloopMap;
     int scanloopCounter = 0;
@@ -118,6 +119,8 @@ static int buildInstructions(std::string& code, bool optimize,
     }
 
     std::vector<size_t> braceStack;
+    std::vector<int> loopIdStack;
+    int loopCounter = 0;
     int16_t offset = 0;
     bool set = false;
     instructions.reserve(code.length());
@@ -195,17 +198,24 @@ static int buildInstructions(std::string& code, bool optimize,
             case '[':
                 moveOffset();
                 braceStack.push_back(instructions.size());
-                emit(insType::JMP_ZER, instruction{nullptr, 0, 0, 0});
+                loopIdStack.push_back(loopCounter);
+                emit(insType::JMP_ZER,
+                     instruction{nullptr, 0, static_cast<int16_t>(loopCounter), 0});
+                ++loopCounter;
                 break;
             case ']': {
                 if (!braceStack.size()) return 1;
 
                 moveOffset();
                 const int start = braceStack.back();
+                const int loopId = loopIdStack.back();
                 const int sizeminstart = instructions.size() - start;
                 braceStack.pop_back();
+                loopIdStack.pop_back();
                 instructions[start].data = sizeminstart;
-                emit(insType::JMP_NOT_ZER, instruction{nullptr, sizeminstart, 0, 0});
+                instructions[start].auxData = static_cast<int16_t>(loopId);
+                emit(insType::JMP_NOT_ZER,
+                     instruction{nullptr, sizeminstart, static_cast<int16_t>(loopId), 0});
                 break;
             }
             case '.':
@@ -241,7 +251,22 @@ static int buildInstructions(std::string& code, bool optimize,
     if (!braceStack.empty()) return 2;
 
     instructions.shrink_to_fit();
+    if (profile) profile->loopCounts.resize(loopCounter);
     return 0;
+}
+
+template <typename CellT>
+static void monitorHotLoops(ProfileInfo* profile, std::string& code) {
+    constexpr std::uint64_t HOT_LOOP_THRESHOLD = 1000;
+    if (!profile) return;
+    for (auto count : profile->loopCounts) {
+        if (count > HOT_LOOP_THRESHOLD) {
+            std::vector<instruction> tmpInst;
+            std::vector<uint8_t> tmpOps;
+            buildInstructions<CellT>(code, true, tmpInst, tmpOps, profile);
+            break;
+        }
+    }
 }
 
 extern "C" int jit_getchar() { return std::cin.get(); }
@@ -255,12 +280,16 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 int eof, bool dynamicSize, bool term, MemoryModel model, ProfileInfo* profile) {
     std::vector<instruction> instructions;
     std::vector<uint8_t> ops;
-    buildInstructions<CellT>(code, optimize, instructions, ops);
+    buildInstructions<CellT>(code, optimize, instructions, ops, profile);
 
     sljit_compiler* compiler = sljit_create_compiler(nullptr);
     if (compiler) {
         std::vector<sljit_label*> labels(instructions.size());
         std::vector<sljit_jump*> jumps(instructions.size(), nullptr);
+        if (profile && !profile->loopCounts.empty()) {
+            sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_S1, 0, SLJIT_IMM,
+                           (sljit_sw)profile->loopCounts.data());
+        }
         for (size_t i = 0; i < instructions.size(); ++i) {
             labels[i] = sljit_emit_label(compiler);
             const instruction& inst = instructions[i];
@@ -284,6 +313,14 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                               inst.offset * sizeof(CellT), SLJIT_IMM, 0);
                     break;
                 case insType::JMP_NOT_ZER:
+                    if (profile && !profile->loopCounts.empty()) {
+                        sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R1, 0, SLJIT_MEM1(SLJIT_S1),
+                                       static_cast<sljit_sw>(inst.auxData * sizeof(std::uint64_t)));
+                        sljit_emit_op2(compiler, SLJIT_ADD, SLJIT_R1, 0, SLJIT_R1, 0, SLJIT_IMM, 1);
+                        sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_MEM1(SLJIT_S1),
+                                       static_cast<sljit_sw>(inst.auxData * sizeof(std::uint64_t)),
+                                       SLJIT_R1, 0);
+                    }
                     jumps[i] = sljit_emit_cmp(compiler, SLJIT_NOT_EQUAL, SLJIT_MEM1(SLJIT_S0),
                                               inst.offset * sizeof(CellT), SLJIT_IMM, 0);
                     break;
@@ -361,7 +398,10 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         sljit_free_compiler(compiler);
     }
 
-    return execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term, model, profile);
+    int ret =
+        execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term, model, profile);
+    monitorHotLoops<CellT>(profile, code);
+    return ret;
 }
 
 #else  // !GOOF2_USE_SLJIT
