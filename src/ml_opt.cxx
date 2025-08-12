@@ -19,7 +19,7 @@ static std::vector<std::pair<std::regex, std::string>> loadModel() {
     std::ifstream in("assets/ml_model.txt");
     std::string line;
     while (std::getline(in, line)) {
-        if (line.empty()) continue;
+        if (line.empty() || line[0] == '#' || line.rfind("//", 0) == 0) continue;
         auto tab = line.find('\t');
         if (tab == std::string::npos) continue;
         rules.emplace_back(std::regex(line.substr(0, tab)), line.substr(tab + 1));
