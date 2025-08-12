@@ -26,7 +26,7 @@ static std::vector<std::pair<std::regex, std::string>> loadModel() {
     size_t lineNo = 0;
     while (std::getline(in, line)) {
         ++lineNo;
-        if (line.empty()) continue;
+        if (line.empty() || line[0] == '#' || line.rfind("//", 0) == 0) continue;
         auto tab = line.find('\t');
         if (tab == std::string::npos) {
             std::cerr << "warning: skipping malformed rule at line " << lineNo
@@ -44,8 +44,16 @@ static std::vector<std::pair<std::regex, std::string>> loadModel() {
 void applyMlOptimizer(std::string& code) {
     if (!mlOptimizerEnabled) return;
     static const auto rules = loadModel();
-    for (const auto& [pattern, replacement] : rules) {
-        code = std::regex_replace(code, pattern, replacement);
-    }
+    bool replaced;
+    do {
+        replaced = false;
+        for (const auto& [pattern, replacement] : rules) {
+            std::string newCode = std::regex_replace(code, pattern, replacement);
+            if (newCode != code) {
+                replaced = true;
+                code = std::move(newCode);
+            }
+        }
+    } while (replaced);
 }
 }  // namespace goof2

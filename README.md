@@ -57,6 +57,20 @@ sljit supports x86 (32/64), ARM (32/64), RISC-V (32/64), s390x (64), PowerPC
 may not be available on every platform. The regex optimization step remains
 unchanged to guarantee identical behavior in JIT mode.
 
+## Machine learning optimizer
+
+Goof2 can load additional rewrite rules learned from example programs. Enable
+them with `--ml-opt` and place the model file as documented in
+[docs/ml_optimizer.md](docs/ml_optimizer.md).
+### Adaptive selection
+
+When JIT support is built, the VM loads a lightweight model at startup and
+predicts whether JIT compilation will speed up a program based on its length and
+cell width.  The model chooses between the JIT and the interpreter
+automatically. Use `--jit` to force JIT execution or `--no-jit` to disable it.
+Each run appends profiling data to `jit_profile.csv`, which can be used to train
+new models via `tools/ml_jit_selector/train.py`.
+
 ## Usage
 
 The VM can execute a Brainfuck program from a file using `-i <file>` or directly from
