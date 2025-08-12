@@ -98,6 +98,8 @@ set(VM_SOURCES
     src/jit.cxx
     include/vm.hxx
     src/jit.hxx
+    src/ml_opt.cxx
+    include/ml_opt.hxx
 )
 
 add_library(vm ${VM_SOURCES})
