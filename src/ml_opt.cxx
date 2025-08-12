@@ -13,6 +13,7 @@
 
 namespace goof2 {
 bool mlOptimizerEnabled = false;
+std::size_t mlOptimizerReplacements = 0;
 
 static std::vector<std::pair<std::regex, std::string>> loadModel() {
     std::vector<std::pair<std::regex, std::string>> rules;
@@ -29,8 +30,11 @@ static std::vector<std::pair<std::regex, std::string>> loadModel() {
 
 void applyMlOptimizer(std::string& code) {
     if (!mlOptimizerEnabled) return;
+    mlOptimizerReplacements = 0;
     static const auto rules = loadModel();
     for (const auto& [pattern, replacement] : rules) {
+        mlOptimizerReplacements += std::distance(
+            std::sregex_iterator(code.begin(), code.end(), pattern), std::sregex_iterator());
         code = std::regex_replace(code, pattern, replacement);
     }
 }

@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -52,6 +53,7 @@ struct CmdArgs {
     int cellWidth = 8;
     goof2::MemoryModel model = goof2::MemoryModel::Auto;
     bool mlOpt = false;
+    bool mlBenchmark = false;
 };
 
 CmdArgs parseArgs(int argc, char* argv[]) {
@@ -105,6 +107,8 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             args.profile = true;
         } else if (arg == "--ml-opt") {
             args.mlOpt = true;
+        } else if (arg == "--ml-benchmark") {
+            args.mlBenchmark = true;
         } else if (arg == "-mm" && i + 1 < argc) {
             std::string mm = argv[++i];
             std::transform(mm.begin(), mm.end(), mm.begin(),
@@ -138,6 +142,7 @@ void printHelp(const char* prog) {
               << "  -cw <width>      Cell width in bits (8,16,32,64)\n"
               << "  --profile        Print execution profile\n"
               << "  --ml-opt         Enable ML-based optimizer\n"
+              << "  --ml-benchmark   Run program with and without ML and report timings\n"
               << "  -mm <model>      Memory model (auto, contiguous, fibonacci, paged, os)\n"
               << "  -h               Show this help message" << std::endl;
 }
@@ -179,6 +184,81 @@ int main(int argc, char* argv[]) {
     }
     if (help) {
         printHelp(argv[0]);
+        return 0;
+    }
+    if (opts.mlBenchmark) {
+        if (evalCode.empty() && filename.empty()) {
+            std::cout << Term::color_fg(Term::Color::Name::Red)
+                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                      << " No code provided" << std::endl;
+            return 1;
+        }
+        std::string code;
+        if (!evalCode.empty()) {
+            code = evalCode;
+        } else {
+            std::ifstream in(filename, std::ios::binary);
+            if (!in.is_open()) {
+                std::cout << Term::color_fg(Term::Color::Name::Red)
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                          << " File could not be opened" << std::endl;
+                return 1;
+            }
+            code.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (!in && !in.eof()) {
+                std::cout << Term::color_fg(Term::Color::Name::Red)
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                          << " Error while reading file" << std::endl;
+                return 1;
+            }
+        }
+        auto runOnce = [&](bool enableMl) {
+            goof2::mlOptimizerEnabled = enableMl;
+            goof2::mlOptimizerReplacements = 0;
+            size_t ptr = 0;
+            std::string benchCode = code;
+            auto start = std::chrono::steady_clock::now();
+            switch (cfg.cellWidth) {
+                case 8: {
+                    std::vector<uint8_t> cells(cfg.tapeSize, 0);
+                    executeExcept<uint8_t>(cells, ptr, benchCode, cfg.optimize, cfg.eof,
+                                           cfg.dynamicSize, cfg.model, nullptr);
+                    break;
+                }
+                case 16: {
+                    std::vector<uint16_t> cells(cfg.tapeSize, 0);
+                    executeExcept<uint16_t>(cells, ptr, benchCode, cfg.optimize, cfg.eof,
+                                            cfg.dynamicSize, cfg.model, nullptr);
+                    break;
+                }
+                case 32: {
+                    std::vector<uint32_t> cells(cfg.tapeSize, 0);
+                    executeExcept<uint32_t>(cells, ptr, benchCode, cfg.optimize, cfg.eof,
+                                            cfg.dynamicSize, cfg.model, nullptr);
+                    break;
+                }
+                case 64: {
+                    std::vector<uint64_t> cells(cfg.tapeSize, 0);
+                    executeExcept<uint64_t>(cells, ptr, benchCode, cfg.optimize, cfg.eof,
+                                            cfg.dynamicSize, cfg.model, nullptr);
+                    break;
+                }
+                default:
+                    std::cout << Term::color_fg(Term::Color::Name::Red)
+                              << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                              << " Unsupported cell width; use 8,16,32,64" << std::endl;
+                    return std::pair<double, std::size_t>(0.0, 0);
+            }
+            auto elapsed =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            return std::pair<double, std::size_t>(elapsed, goof2::mlOptimizerReplacements);
+        };
+        auto base = runOnce(false);
+        auto ml = runOnce(true);
+        std::cout << "Without ML: " << base.first << "s\n";
+        std::cout << "With ML: " << ml.first << "s\n";
+        std::cout << "Difference: " << (base.first - ml.first) << "s" << std::endl;
+        if (ml.second) std::cout << "Replacements: " << ml.second << std::endl;
         return 0;
     }
     if (!evalCode.empty()) {
@@ -407,6 +487,54 @@ int main(int argc, char* argv[]) {
             std::cerr << "ERROR: Error while reading file";
             return 1;
         }
+    }
+    if (opts.mlBenchmark) {
+        auto runOnce = [&](bool enableMl) {
+            goof2::mlOptimizerEnabled = enableMl;
+            goof2::mlOptimizerReplacements = 0;
+            size_t ptr = 0;
+            std::string benchCode = code;
+            auto start = std::chrono::steady_clock::now();
+            switch (cellWidth) {
+                case 8: {
+                    std::vector<uint8_t> cells(tapeSize, 0);
+                    executeExcept<uint8_t>(cells, ptr, benchCode, optimize, eof, dynamicSize, model,
+                                           nullptr);
+                    break;
+                }
+                case 16: {
+                    std::vector<uint16_t> cells(tapeSize, 0);
+                    executeExcept<uint16_t>(cells, ptr, benchCode, optimize, eof, dynamicSize,
+                                            model, nullptr);
+                    break;
+                }
+                case 32: {
+                    std::vector<uint32_t> cells(tapeSize, 0);
+                    executeExcept<uint32_t>(cells, ptr, benchCode, optimize, eof, dynamicSize,
+                                            model, nullptr);
+                    break;
+                }
+                case 64: {
+                    std::vector<uint64_t> cells(tapeSize, 0);
+                    executeExcept<uint64_t>(cells, ptr, benchCode, optimize, eof, dynamicSize,
+                                            model, nullptr);
+                    break;
+                }
+                default:
+                    std::cerr << "ERROR: Unsupported cell width; use 8,16,32,64" << std::endl;
+                    return std::pair<double, std::size_t>(0.0, 0);
+            }
+            auto elapsed =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            return std::pair<double, std::size_t>(elapsed, goof2::mlOptimizerReplacements);
+        };
+        auto base = runOnce(false);
+        auto ml = runOnce(true);
+        std::cout << "Without ML: " << base.first << "s\n";
+        std::cout << "With ML: " << ml.first << "s\n";
+        std::cout << "Difference: " << (base.first - ml.first) << "s" << std::endl;
+        if (ml.second) std::cout << "Replacements: " << ml.second << std::endl;
+        return 0;
     }
     goof2::ProfileInfo prof;
     goof2::ProfileInfo* profPtr = profile ? &prof : nullptr;
