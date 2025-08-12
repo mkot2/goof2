@@ -8,10 +8,12 @@
 
 #include <algorithm>
 #include <iostream>
+#include <mutex>
 #include <regex>
 #include <string_view>
 #include <vector>
 
+#include "parallel.hxx"
 #include "vm.hxx"
 
 #if GOOF2_USE_SLJIT
@@ -244,8 +246,12 @@ static int buildInstructions(std::string& code, bool optimize,
     return 0;
 }
 
-extern "C" int jit_getchar() { return std::cin.get(); }
+extern "C" int jit_getchar() {
+    std::lock_guard<std::mutex> lock(goof2::ioMutex);
+    return std::cin.get();
+}
 extern "C" void jit_putchar(int ch) {
+    std::lock_guard<std::mutex> lock(goof2::ioMutex);
     std::cout.put(static_cast<char>(ch));
     std::cout.flush();
 }
@@ -347,7 +353,7 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     break;
             }
         }
-        for (size_t i = 0; i < instructions.size(); ++i) {
+        goof2::parallelFor(0, instructions.size(), [&](size_t i) {
             if (ops[i] == static_cast<uint8_t>(insType::JMP_ZER)) {
                 size_t target = i + instructions[i].data;
                 if (jumps[i]) sljit_set_label(jumps[i], labels[target]);
@@ -355,7 +361,7 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 size_t target = i - instructions[i].data;
                 if (jumps[i]) sljit_set_label(jumps[i], labels[target]);
             }
-        }
+        });
         void* codeptr = sljit_generate_code(compiler, 0, nullptr);
         sljit_free_code(codeptr, nullptr);
         sljit_free_compiler(compiler);

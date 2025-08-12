@@ -75,3 +75,14 @@ target_link_libraries(vm_jit_regression_tests PRIVATE
 )
 
 add_test(NAME vm_jit_regression_tests COMMAND vm_jit_regression_tests)
+
+add_executable(vm_parallel_tests
+    test_parallel.cxx
+)
+
+target_link_libraries(vm_parallel_tests PRIVATE
+    vm
+    Warnings
+)
+
+add_test(NAME vm_parallel_tests COMMAND vm_parallel_tests)
