@@ -65,6 +65,13 @@ FetchContent_Declare(simde
 
 if(GOOF2_ENABLE_REPL)
     FetchContent_MakeAvailable(cpp-terminal)
+    # cpp-terminal triggers some warnings that can become build errors
+    # when projects compile with -Werror.  Silence the specific warnings
+    # about ignored return values and unused variables so that enabling
+    # -Werror does not break the build.
+    target_compile_options(cpp-terminal PRIVATE
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-Wno-unused-result -Wno-unused-variable -Wno-unused-but-set-variable>
+    )
 endif()
 FetchContent_GetProperties(simde)
 if(NOT simde_POPULATED)
@@ -86,6 +93,9 @@ target_include_directories(vm
         ${SIMDE_INCLUDE_DIR}
 )
 target_link_libraries(vm PRIVATE Warnings)
+target_compile_options(vm PRIVATE
+    $<$<CXX_COMPILER_ID:GNU>:-Wno-psabi>
+)
 
 set(EXEC_SOURCES
     main.cxx
