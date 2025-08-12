@@ -33,6 +33,7 @@ enum class MemoryModel { Auto, Contiguous, Fibonacci, Paged, OSBacked };
 struct ProfileInfo {
     std::uint64_t instructions = 0;
     double seconds = 0.0;
+    std::vector<std::uint64_t> loopCounts{};
 };
 
 extern std::mutex ioMutex;

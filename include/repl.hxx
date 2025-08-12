@@ -24,6 +24,9 @@ struct ReplConfig {
     size_t tapeSize;
     int cellWidth;
     goof2::MemoryModel model;
+    bool highlightChanges;
+    bool searchActive;
+    uint64_t searchValue;
 };
 
 template <typename CellT>

@@ -148,8 +148,15 @@ int main(int argc, char* argv[]) {
     std::string evalCode = opts.evalCode;
     const bool dumpMemoryFlag = opts.dumpMemory;
     const bool help = opts.help;
-    ReplConfig cfg{opts.optimize, opts.dynamicTape, opts.eof,
-                   opts.tapeSize, opts.cellWidth,   opts.model};
+    ReplConfig cfg{opts.optimize,
+                   opts.dynamicTape,
+                   opts.eof,
+                   opts.tapeSize,
+                   opts.cellWidth,
+                   opts.model,
+                   true,
+                   false,
+                   0};
     const bool profile = opts.profile;
     if (cfg.tapeSize == 0) {
         std::cout << Term::color_fg(Term::Color::Name::Red)
