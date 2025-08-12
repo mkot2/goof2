@@ -10,10 +10,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -52,6 +55,50 @@ void* (*os_alloc)(size_t) = default_os_alloc;
 void (*os_free)(void*, size_t) = default_os_free;
 }  // namespace goof2
 #endif
+
+namespace goof2 {
+MemoryModel predictMemoryModel(size_t tapeSize, ptrdiff_t accessDelta) {
+    static bool loaded = false;
+    static double coeffs[4][2];
+    static double intercepts[4];
+    if (!loaded) {
+        const char* path = std::getenv("GOOF2_MM_MODEL");
+        if (!path) path = "tools/ml_memmodel/model.csv";
+        std::ifstream in(path);
+        if (!in) return MemoryModel::Auto;
+        std::string line;
+        for (int i = 0; i < 4; ++i) {
+            if (!std::getline(in, line)) return MemoryModel::Auto;
+            std::stringstream ss(line);
+            char comma;
+            ss >> intercepts[i] >> comma >> coeffs[i][0] >> comma >> coeffs[i][1];
+        }
+        loaded = true;
+    }
+    if (!loaded) return MemoryModel::Auto;
+    double x1 = std::log2(static_cast<double>(tapeSize) + 1.0);
+    double x2 = std::log2(static_cast<double>(std::abs(accessDelta)) + 1.0);
+    double best = -1e300;
+    int bestClass = 0;
+    for (int i = 0; i < 4; ++i) {
+        double score = intercepts[i] + coeffs[i][0] * x1 + coeffs[i][1] * x2;
+        if (score > best) {
+            best = score;
+            bestClass = i;
+        }
+    }
+    switch (bestClass) {
+        case 1:
+            return MemoryModel::Fibonacci;
+        case 2:
+            return MemoryModel::Paged;
+        case 3:
+            return MemoryModel::OSBacked;
+        default:
+            return MemoryModel::Contiguous;
+    }
+}
+}  // namespace goof2
 
 using goof2::MemoryModel;
 
@@ -672,7 +719,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
     constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
     size_t fibA = cells.size(), fibB = cells.size();
-    auto chooseModel = [&](size_t size) {
+    auto chooseModel = [&](size_t size, ptrdiff_t delta) {
+        MemoryModel predicted = goof2::predictMemoryModel(size, delta);
+        if (predicted != MemoryModel::Auto) return predicted;
 #if GOOF2_HAS_OS_VM
         if (size > (1u << 28)) return MemoryModel::OSBacked;
 #endif
@@ -683,7 +732,16 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         if constexpr (Sparse) return;  // sparse tape allocates on demand
         size_t needed = static_cast<size_t>(neededIndex + 1);
-        MemoryModel target = adaptive ? chooseModel(needed) : model;
+        ptrdiff_t delta = neededIndex - currentCell;
+        MemoryModel target = adaptive ? chooseModel(needed, delta) : model;
+        if (const char* dsPath = std::getenv("GOOF2_MM_DATASET")) {
+            std::ofstream ds(dsPath, std::ios::app);
+            if (ds) {
+                size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
+                ds << totalSize << ',' << currentCell << ',' << neededIndex << ','
+                   << static_cast<int>(target) << '\n';
+            }
+        }
         if (adaptive && target != model) {
             if (target == MemoryModel::OSBacked) {
 #if GOOF2_HAS_OS_VM

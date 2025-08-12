@@ -17,6 +17,7 @@
 #define GOOF2_HAS_OS_VM 0
 #endif
 
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -37,6 +38,7 @@ struct ProfileInfo {
 };
 
 extern std::mutex ioMutex;
+MemoryModel predictMemoryModel(std::size_t tapeSize, std::ptrdiff_t accessDelta);
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
 /// @tparam CellT Cell width type (uint8_t, uint16_t, uint32_t, uint64_t)
 /// @param cells Vector of cells of type CellT.
