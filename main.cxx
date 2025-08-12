@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "jit_selector.hxx"
+#include "ml_opt.hxx"
 #include "vm.hxx"
 #ifdef GOOF2_ENABLE_REPL
 #include "cpp-terminal/color.hpp"
@@ -80,6 +81,7 @@ struct CmdArgs {
     int cellWidth = 8;
     goof2::MemoryModel model = goof2::MemoryModel::Auto;
     JitMode jitMode = JitMode::Auto;
+    bool mlOpt = false;
 };
 
 CmdArgs parseArgs(int argc, char* argv[]) {
@@ -135,6 +137,8 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             args.jitMode = JitMode::Force;
         } else if (arg == "--no-jit") {
             args.jitMode = JitMode::Disable;
+        } else if (arg == "--ml-opt") {
+            args.mlOpt = true;
         } else if (arg == "-mm" && i + 1 < argc) {
             std::string mm = argv[++i];
             std::transform(mm.begin(), mm.end(), mm.begin(),
@@ -169,6 +173,7 @@ void printHelp(const char* prog) {
               << "  --jit            Force JIT execution\n"
               << "  --no-jit         Disable JIT\n"
               << "  --profile        Print execution profile\n"
+              << "  --ml-opt         Enable ML-based optimizer\n"
               << "  -mm <model>      Memory model (auto, contiguous, fibonacci, paged, os)\n"
               << "  -h               Show this help message" << std::endl;
 }
@@ -182,6 +187,7 @@ int main(int argc, char* argv[]) {
     CmdArgs opts = parseArgs(argc, argv);
     jitMode = opts.jitMode;
     jitModelLoaded = loadJitModel("tools/ml_jit_selector/model.dat", jitModel);
+    goof2::mlOptimizerEnabled = opts.mlOpt;
     std::string filename = opts.filename;
     std::string evalCode = opts.evalCode;
     const bool dumpMemoryFlag = opts.dumpMemory;
@@ -409,6 +415,7 @@ int main(int argc, char* argv[]) {
     CmdArgs opts = parseArgs(argc, argv);
     jitMode = opts.jitMode;
     jitModelLoaded = loadJitModel("tools/ml_jit_selector/model.dat", jitModel);
+    goof2::mlOptimizerEnabled = opts.mlOpt;
 
     std::string filename = opts.filename;
     std::string evalCode = opts.evalCode;

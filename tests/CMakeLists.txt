@@ -104,3 +104,15 @@ target_link_libraries(vm_parallel_tests PRIVATE
 
 add_test(NAME vm_parallel_tests COMMAND vm_parallel_tests)
 set_tests_properties(vm_parallel_tests PROPERTIES TIMEOUT 5)
+
+add_executable(vm_model_selection_tests
+    test_model_selection.cxx
+)
+
+target_link_libraries(vm_model_selection_tests PRIVATE
+    vm
+    Warnings
+)
+
+add_test(NAME vm_model_selection_tests COMMAND vm_model_selection_tests)
+set_tests_properties(vm_model_selection_tests PROPERTIES TIMEOUT 5)
