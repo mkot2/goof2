@@ -40,10 +40,12 @@ static void enable_vt_mode() {
 namespace {
 struct CmdArgs {
     std::string filename;
+    std::string evalCode;
     bool dumpMemory = false;
     bool help = false;
     bool optimize = true;
     bool dynamicTape = false;
+    bool profile = false;
     int eof = 0;
     std::size_t tapeSize = 30000;
     int cellWidth = 8;
@@ -54,7 +56,10 @@ CmdArgs parseArgs(int argc, char* argv[]) {
     CmdArgs args;
     for (int i = 1; i < argc; ++i) {
         std::string_view arg = argv[i];
-        if (arg == "-i" && i + 1 < argc) {
+        if (arg == "-e" && i + 1 < argc) {
+            args.evalCode = argv[++i];
+            args.filename.clear();
+        } else if (arg == "-i" && i + 1 < argc && args.evalCode.empty()) {
             args.filename = argv[++i];
         } else if (arg == "-dm") {
             args.dumpMemory = true;
@@ -94,6 +99,8 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             } else {
                 args.cellWidth = static_cast<int>(parsed);
             }
+        } else if (arg == "--profile") {
+            args.profile = true;
         } else if (arg == "-mm" && i + 1 < argc) {
             std::string mm = argv[++i];
             std::transform(mm.begin(), mm.end(), mm.begin(),
@@ -123,10 +130,12 @@ int main(int argc, char* argv[]) {
 #endif
     CmdArgs opts = parseArgs(argc, argv);
     std::string filename = opts.filename;
+    std::string evalCode = opts.evalCode;
     const bool dumpMemoryFlag = opts.dumpMemory;
     const bool help = opts.help;
     ReplConfig cfg{opts.optimize, opts.dynamicTape, opts.eof,
                    opts.tapeSize, opts.cellWidth,   opts.model};
+    const bool profile = opts.profile;
     if (cfg.tapeSize == 0) {
         std::cout << Term::color_fg(Term::Color::Name::Red)
                   << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
@@ -142,6 +151,46 @@ int main(int argc, char* argv[]) {
     }
     if (help) {
         std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
+        return 0;
+    }
+    if (!evalCode.empty()) {
+        size_t cellPtr = 0;
+        std::string code = evalCode;
+        switch (cfg.cellWidth) {
+            case 8: {
+                std::vector<uint8_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                       cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
+                break;
+            }
+            case 16: {
+                std::vector<uint16_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint16_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                        cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
+                break;
+            }
+            case 32: {
+                std::vector<uint32_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint32_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                        cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
+                break;
+            }
+            case 64: {
+                std::vector<uint64_t> cells(cfg.tapeSize, 0);
+                executeExcept<uint64_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                        cfg.dynamicSize);
+                if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
+                break;
+            }
+            default:
+                std::cout << Term::color_fg(Term::Color::Name::Red)
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                          << " Unsupported cell width; use 8,16,32,64" << std::endl;
+                return 1;
+        }
         return 0;
     }
     if (!filename.empty()) {
@@ -160,32 +209,34 @@ int main(int argc, char* argv[]) {
                       << " Error while reading file" << std::endl;
             return 1;
         }
+        goof2::ProfileInfo profileInfo;
+        goof2::ProfileInfo* profPtr = profile ? &profileInfo : nullptr;
         switch (cfg.cellWidth) {
             case 8: {
                 std::vector<uint8_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof, cfg.dynamicSize,
-                                       cfg.model);
+                                       cfg.model, profPtr);
                 if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
                 break;
             }
             case 16: {
                 std::vector<uint16_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint16_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize, cfg.model);
+                                        cfg.dynamicSize, cfg.model, profPtr);
                 if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
                 break;
             }
             case 32: {
                 std::vector<uint32_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint32_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize, cfg.model);
+                                        cfg.dynamicSize, cfg.model, profPtr);
                 if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
                 break;
             }
             case 64: {
                 std::vector<uint64_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint64_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize, cfg.model);
+                                        cfg.dynamicSize, cfg.model, profPtr);
                 if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
                 break;
             }
@@ -194,6 +245,10 @@ int main(int argc, char* argv[]) {
                           << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
                           << " Unsupported cell width; use 8,16,32,64" << std::endl;
                 return 1;
+        }
+        if (profile) {
+            std::cout << "Instructions executed: " << profileInfo.instructions << std::endl;
+            std::cout << "Elapsed time: " << profileInfo.seconds << "s" << std::endl;
         }
         return 0;
     }
@@ -256,8 +311,10 @@ void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr) {
 
 template <typename CellT>
 void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                   int eof, bool dynamicSize, goof2::MemoryModel model) {
-    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false, model);
+                   int eof, bool dynamicSize, goof2::MemoryModel model,
+                   goof2::ProfileInfo* profile) {
+    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false, model,
+                                    profile);
     switch (ret) {
         case 1:
             std::cerr << "ERROR: Unmatched close bracket";
@@ -273,6 +330,7 @@ int main(int argc, char* argv[]) {
     CmdArgs opts = parseArgs(argc, argv);
 
     std::string filename = opts.filename;
+    std::string evalCode = opts.evalCode;
     const bool dumpMemoryFlag = opts.dumpMemory;
     const bool help = opts.help;
     bool optimize = opts.optimize;
@@ -281,6 +339,7 @@ int main(int argc, char* argv[]) {
     std::size_t tapeSize = opts.tapeSize;
     int cellWidth = opts.cellWidth;
     goof2::MemoryModel model = opts.model;
+    const bool profile = opts.profile;
     if (tapeSize == 0) {
         std::cout << "ERROR: Tape size must be positive; using default 30000" << std::endl;
         tapeSize = 30000;
@@ -294,49 +353,64 @@ int main(int argc, char* argv[]) {
         std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
         return 0;
     }
-    if (filename.empty()) {
-        std::cout << "REPL disabled; use -i <file> to run a program" << std::endl;
+    if (filename.empty() && evalCode.empty()) {
+        std::cout << "REPL disabled; use -i <file> or -e <code> to run a program" << std::endl;
         return 0;
     }
     size_t cellPtr = 0;
-    std::ifstream in(filename, std::ios::binary);
-    if (!in.is_open()) {
-        std::cerr << "ERROR: File could not be opened";
-        return 1;
+    std::string code;
+    if (!evalCode.empty()) {
+        code = evalCode;
+    } else {
+        std::ifstream in(filename, std::ios::binary);
+        if (!in.is_open()) {
+            std::cerr << "ERROR: File could not be opened";
+            return 1;
+        }
+        code.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (!in && !in.eof()) {
+            std::cerr << "ERROR: Error while reading file";
+            return 1;
+        }
     }
-    std::string code((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    if (!in && !in.eof()) {
-        std::cerr << "ERROR: Error while reading file";
-        return 1;
-    }
+    goof2::ProfileInfo prof;
+    goof2::ProfileInfo* profPtr = profile ? &prof : nullptr;
     switch (cellWidth) {
         case 8: {
             std::vector<uint8_t> cells(tapeSize, 0);
-            executeExcept<uint8_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
+            executeExcept<uint8_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model,
+                                   profPtr);
             if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
             break;
         }
         case 16: {
             std::vector<uint16_t> cells(tapeSize, 0);
-            executeExcept<uint16_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
+            executeExcept<uint16_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model,
+                                    profPtr);
             if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
             break;
         }
         case 32: {
             std::vector<uint32_t> cells(tapeSize, 0);
-            executeExcept<uint32_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
+            executeExcept<uint32_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model,
+                                    profPtr);
             if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
             break;
         }
         case 64: {
             std::vector<uint64_t> cells(tapeSize, 0);
-            executeExcept<uint64_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
+            executeExcept<uint64_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model,
+                                    profPtr);
             if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
             break;
         }
         default:
             std::cerr << "ERROR: Unsupported cell width; use 8,16,32,64" << std::endl;
             return 1;
+    }
+    if (profile) {
+        std::cout << "Instructions executed: " << prof.instructions << std::endl;
+        std::cout << "Elapsed time: " << prof.seconds << "s" << std::endl;
     }
     return 0;
 }

@@ -44,11 +44,26 @@ An HTML report will be generated in `build/coverage`. Open
 
 ## Usage
 
+The VM can execute a Brainfuck program from a file using `-i <file>` or directly from
+an inline string with `-e <code>`. When `-e` is provided any `-i` option is ignored.
+Inline execution works with all other flags, e.g. optimization or tape settings.
+
+```sh
+printf 'A' | ./goof2 -e ',.'
+./goof2 -e '+++' -nopt
+```
+
 The VM supports selectable cell widths. Use the `--cw` option to choose 8-, 16- or 32-bit
 cells at startup:
 
 ```sh
 ./goof2 --cw 16 program.bf
+```
+
+Add `--profile` to measure execution time and instruction count:
+
+```sh
+./goof2 --profile program.bf
 ```
 
 Select a memory allocation strategy with `-mm <contiguous|fibonacci|paged|os>`. If omitted,

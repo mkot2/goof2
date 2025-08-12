@@ -28,6 +28,11 @@ extern void (*os_free)(void*, size_t);
 #endif
 
 enum class MemoryModel { Auto, Contiguous, Fibonacci, Paged, OSBacked };
+
+struct ProfileInfo {
+    std::uint64_t instructions = 0;
+    double seconds = 0.0;
+};
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
 /// @tparam CellT Cell width type (uint8_t, uint16_t, uint32_t, uint64_t)
 /// @param cells Vector of cells of type CellT.
@@ -53,5 +58,5 @@ template <typename CellT>
 int execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
             bool optimize = GOOF2_OPTIMIZE, int eof = GOOF2_DEFAULT_EOF_BEHAVIOUR,
             bool dynamicSize = GOOF2_DYNAMIC_CELLS_SIZE, bool term = GOOF2_DEFAULT_SAVE_STATE,
-            MemoryModel model = MemoryModel::Auto);
+            MemoryModel model = MemoryModel::Auto, ProfileInfo* profile = nullptr);
 }  // namespace goof2
