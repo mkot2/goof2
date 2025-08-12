@@ -121,6 +121,21 @@ CmdArgs parseArgs(int argc, char* argv[]) {
     }
     return args;
 }
+void printHelp(const char* prog) {
+    std::cout << "Usage: " << prog << " [options]\n"
+              << "Options:\n"
+              << "  -e <code>        Execute Brainfuck code directly\n"
+              << "  -i <file>        Execute code from file\n"
+              << "  -dm              Dump memory after program\n"
+              << "  -nopt            Disable optimizations\n"
+              << "  -dts             Enable dynamic tape resizing\n"
+              << "  -eof <value>     Set EOF return value\n"
+              << "  -ts <size>       Tape size in cells (default 30000)\n"
+              << "  -cw <width>      Cell width in bits (8,16,32,64)\n"
+              << "  --profile        Print execution profile\n"
+              << "  -mm <model>      Memory model (auto, contiguous, fibonacci, paged, os)\n"
+              << "  -h               Show this help message" << std::endl;
+}
 }  // namespace
 
 #ifdef GOOF2_ENABLE_REPL
@@ -150,7 +165,7 @@ int main(int argc, char* argv[]) {
                   << std::endl;
     }
     if (help) {
-        std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
+        printHelp(argv[0]);
         return 0;
     }
     if (!evalCode.empty()) {
@@ -159,29 +174,29 @@ int main(int argc, char* argv[]) {
         switch (cfg.cellWidth) {
             case 8: {
                 std::vector<uint8_t> cells(cfg.tapeSize, 0);
-                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                       cfg.dynamicSize);
+                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof, cfg.dynamicSize,
+                                       cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
                 break;
             }
             case 16: {
                 std::vector<uint16_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint16_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
                 break;
             }
             case 32: {
                 std::vector<uint32_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint32_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
                 break;
             }
             case 64: {
                 std::vector<uint64_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint64_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
                 break;
             }
@@ -350,7 +365,7 @@ int main(int argc, char* argv[]) {
                   << " MiB may exceed system memory" << std::endl;
     }
     if (help) {
-        std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
+        printHelp(argv[0]);
         return 0;
     }
     if (filename.empty() && evalCode.empty()) {
