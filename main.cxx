@@ -15,6 +15,7 @@
 #include <string_view>
 #include <vector>
 
+#include "ml_memory_model.hxx"
 #include "vm.hxx"
 #ifdef GOOF2_ENABLE_REPL
 #include "cpp-terminal/color.hpp"
@@ -46,6 +47,7 @@ struct CmdArgs {
     bool optimize = true;
     bool dynamicTape = false;
     bool profile = false;
+    bool mlModel = true;
     int eof = 0;
     std::size_t tapeSize = 30000;
     int cellWidth = 8;
@@ -101,6 +103,8 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             }
         } else if (arg == "--profile") {
             args.profile = true;
+        } else if (arg == "--no-ml-mm") {
+            args.mlModel = false;
         } else if (arg == "-mm" && i + 1 < argc) {
             std::string mm = argv[++i];
             std::transform(mm.begin(), mm.end(), mm.begin(),
@@ -133,6 +137,7 @@ void printHelp(const char* prog) {
               << "  -ts <size>       Tape size in cells (default 30000)\n"
               << "  -cw <width>      Cell width in bits (8,16,32,64)\n"
               << "  --profile        Print execution profile\n"
+              << "  --no-ml-mm       Disable ML-based memory model selection\n"
               << "  -mm <model>      Memory model (auto, contiguous, fibonacci, paged, os)\n"
               << "  -h               Show this help message" << std::endl;
 }
@@ -171,6 +176,8 @@ int main(int argc, char* argv[]) {
     if (!evalCode.empty()) {
         size_t cellPtr = 0;
         std::string code = evalCode;
+        if (opts.mlModel && cfg.model == goof2::MemoryModel::Auto)
+            cfg.model = goof2::predict_memory_model(goof2::extract_features(code));
         switch (cfg.cellWidth) {
             case 8: {
                 std::vector<uint8_t> cells(cfg.tapeSize, 0);
@@ -224,6 +231,8 @@ int main(int argc, char* argv[]) {
                       << " Error while reading file" << std::endl;
             return 1;
         }
+        if (opts.mlModel && cfg.model == goof2::MemoryModel::Auto)
+            cfg.model = goof2::predict_memory_model(goof2::extract_features(code));
         goof2::ProfileInfo profileInfo;
         goof2::ProfileInfo* profPtr = profile ? &profileInfo : nullptr;
         switch (cfg.cellWidth) {
@@ -394,6 +403,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
+    if (opts.mlModel && model == goof2::MemoryModel::Auto)
+        model = goof2::predict_memory_model(goof2::extract_features(code));
     goof2::ProfileInfo prof;
     goof2::ProfileInfo* profPtr = profile ? &prof : nullptr;
     switch (cellWidth) {

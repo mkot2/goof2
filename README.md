@@ -82,8 +82,9 @@ Add `--profile` to measure execution time and instruction count:
 ```
 
 Select a memory allocation strategy with `-mm <contiguous|fibonacci|paged|os>`. If omitted,
-the VM chooses a model heuristically. In the interactive REPL, press `F8` to cycle through
-the available models.
+a tiny logistic regression model chooses a memory layout based on program features.
+Pass `--no-ml-mm` to fall back to the built-in heuristic instead. In the interactive REPL,
+press `F8` to cycle through the available models.
 
 ## Memory models
 
@@ -109,4 +110,5 @@ intended use. It includes third-party components under separate licenses:
 - cpp-terminal (MIT), included via git submodule; see `cpp-terminal/LICENSE`
 - simde (MIT and CC0), included via git submodule; see `simde/COPYING`
 - sljit (BSD-2-Clause), included via git submodule; see `LICENSE.sljit`
+- dlib (Boost Software License 1.0), fetched automatically; see `LICENSE.dlib`
 

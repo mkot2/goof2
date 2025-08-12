@@ -13,8 +13,8 @@ if(NOT LTO_PARALLEL_JOBS OR LTO_PARALLEL_JOBS EQUAL 0)
     set(LTO_PARALLEL_JOBS 1)
 endif()
 
-# Link the C++ runtime statically on Windows to avoid missing procedure
-# entry point errors when running the prebuilt executable.
+#Link the C++ runtime statically on Windows to avoid missing procedure
+#entry point errors when running the prebuilt executable.
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 elseif(MINGW)
@@ -29,14 +29,14 @@ if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
 endif()
-# Default to a Release build if no build type is explicitly set.  This keeps
-# binaries small and enables the high-optimization flags defined below.
+#Default to a Release build if no build type is explicitly set.This keeps
+#binaries small and enables the high - optimization flags defined below.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "No build type specified. Defaulting to Release.")
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# Stub warnings target required by cpp-terminal
+#Stub warnings target required by cpp - terminal
 add_library(Warnings INTERFACE)
 add_library(Warnings::Warnings ALIAS Warnings)
 
@@ -45,7 +45,7 @@ target_compile_options(Warnings INTERFACE
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
 )
 
-# Disable building tests, examples, docs, and install rules for submodules
+#Disable building tests, examples, docs, and install rules for submodules
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 if(GOOF2_ENABLE_REPL)
@@ -65,13 +65,17 @@ FetchContent_Declare(simde
     GIT_REPOSITORY https://github.com/simd-everywhere/simde
     GIT_TAG 7da3fb1d7f9ad859290f7141403036c3c90bf668
 )
+FetchContent_Declare(dlib
+    GIT_REPOSITORY https://github.com/davisking/dlib
+    GIT_TAG v19.24
+)
 
 if(GOOF2_ENABLE_REPL)
     FetchContent_MakeAvailable(cpp-terminal)
-    # cpp-terminal triggers some warnings that can become build errors
-    # when projects compile with -Werror.  Silence the specific warnings
-    # about ignored return values and unused variables so that enabling
-    # -Werror does not break the build.
+#cpp - terminal triggers some warnings that can become build errors
+#when projects compile with - Werror.Silence the specific warnings
+#about ignored return values and unused variables so that enabling
+#- Werror does not break the build.
     target_compile_options(cpp-terminal PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wno-unused-result -Wno-unused-variable -Wno-unused-but-set-variable>
     )
@@ -82,15 +86,21 @@ if(NOT simde_POPULATED)
 endif()
 set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
+FetchContent_GetProperties(dlib)
+if(NOT dlib_POPULATED)
+    FetchContent_Populate(dlib)
+endif()
+set(DLIB_INCLUDE_DIR ${dlib_SOURCE_DIR})
+
 if(GooF2_USE_SLJIT)
     add_library(sljit STATIC
         sljit/sljit_src/sljitLir.c
         sljit/sljit_src/sljitUtils.c
-        sljit/sljit_src/sljitSerialize.c
     )
     target_include_directories(sljit PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/sljit/sljit_src>
     )
+    target_compile_definitions(sljit PUBLIC SLJIT_CONFIG_AUTO=1)
 endif()
 
 set(VM_SOURCES
@@ -98,6 +108,7 @@ set(VM_SOURCES
     src/jit.cxx
     include/vm.hxx
     src/jit.hxx
+    include/ml_memory_model.hxx
 )
 
 add_library(vm ${VM_SOURCES})
@@ -105,6 +116,7 @@ target_include_directories(vm
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include/goof2>
+        $<BUILD_INTERFACE:${DLIB_INCLUDE_DIR}>
     PRIVATE
         ${SIMDE_INCLUDE_DIR}
 )

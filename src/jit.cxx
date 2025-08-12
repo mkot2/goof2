@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "jit.hxx"
 
+#include "ml_memory_model.hxx"
 #include "vm.hxx"
 
 #if GOOF2_USE_SLJIT
@@ -26,19 +27,22 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     std::vector<uint8_t> ops;
     (void)cells;
     (void)cellPtr;
-    (void)code;
     (void)optimize;
     (void)eof;
     (void)dynamicSize;
     (void)term;
-    (void)model;
     (void)profile;
+
+    if (model == MemoryModel::Auto) {
+        ProgramFeatures f = extract_features(code);
+        model = predict_memory_model(f);
+    }
 
     sljit_compiler* compiler = sljit_create_compiler(nullptr);
     if (!compiler) return -1;
 
     for (size_t i = 0; i < instructions.size(); ++i) {
-        const instruction& inst = instructions[i];
+        instruction& inst = instructions[i];
         const insType op = static_cast<insType>(ops[i]);
         switch (op) {
             case insType::ADD_SUB:

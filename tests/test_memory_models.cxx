@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "ml_memory_model.hxx"
 #include "vm.hxx"
 
 static void run_model(goof2::MemoryModel model, std::size_t expectedSize) {
@@ -23,5 +24,10 @@ int main() {
 #if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
     run_model(goof2::MemoryModel::OSBacked, 0);
 #endif
+    const std::string prog = ">[]";
+    goof2::ProgramFeatures f = goof2::extract_features(prog);
+    goof2::MemoryModel predicted = goof2::predict_memory_model(f);
+    assert(predicted == goof2::MemoryModel::Paged);
+    assert(predicted != goof2::MemoryModel::Contiguous);
     return 0;
 }

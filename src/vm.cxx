@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "ml_memory_model.hxx"
+
 #if defined(_WIN32)
 #include <windows.h>
 #elif defined(__unix__) || defined(__APPLE__)
@@ -51,6 +53,27 @@ void (*os_free)(void*, size_t) = default_os_free;
 #endif
 
 using goof2::MemoryModel;
+
+namespace goof2 {
+
+ProgramFeatures extract_features(const std::string& code) {
+    ProgramFeatures f{};
+    f.length = static_cast<double>(code.size());
+    double loops = 0.0;
+    double io = 0.0;
+    for (char c : code) {
+        if (c == '[') {
+            ++loops;
+        } else if (c == ',' || c == '.') {
+            ++io;
+        }
+    }
+    f.loops = loops;
+    f.io_density = f.length ? io / f.length : 0.0;
+    return f;
+}
+
+}  // namespace goof2
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
@@ -875,7 +898,6 @@ _PUT_CHR:
         std::cout.flush();
     }
     LOOP();
-
 
 _RAD_CHR:
     if constexpr (Dynamic) EXPAND_IF_NEEDED()
