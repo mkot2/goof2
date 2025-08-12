@@ -81,6 +81,22 @@ void appendInputLines(std::vector<std::string>& log, const std::string& input) {
     }
 }
 
+const char* modelName(goof2::MemoryModel m) {
+    switch (m) {
+        case goof2::MemoryModel::Contiguous:
+            return "contig";
+        case goof2::MemoryModel::Fibonacci:
+            return "fib";
+        case goof2::MemoryModel::Paged:
+            return "paged";
+        case goof2::MemoryModel::OSBacked:
+            return "os";
+        case goof2::MemoryModel::Auto:
+        default:
+            return "auto";
+    }
+}
+
 enum class MenuState { None, TapeSize, EOFVal, CellWidth };
 
 enum class Tab { Log, Memory };
@@ -132,7 +148,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         " [F5]cw:" +
         (menuState == MenuState::CellWidth ? ">" + menuInput : std::to_string(cfg.cellWidth)) +
         " [F6]" + (tab == Tab::Log ? "log*" : "log") + " [F7]" +
-        (tab == Tab::Memory ? "mem*" : "mem");
+        (tab == Tab::Memory ? "mem*" : "mem") + " [F8]mm:" + modelName(cfg.model);
     if (menu.size() < cols)
         menu += std::string(cols - menu.size(), ' ');
     else
@@ -267,6 +283,29 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
             tab = Tab::Log;
         } else if (key == Term::Key::F7) {
             tab = Tab::Memory;
+        } else if (key == Term::Key::F8) {
+            using goof2::MemoryModel;
+            switch (cfg.model) {
+                case MemoryModel::Auto:
+                    cfg.model = MemoryModel::Contiguous;
+                    break;
+                case MemoryModel::Contiguous:
+                    cfg.model = MemoryModel::Fibonacci;
+                    break;
+                case MemoryModel::Fibonacci:
+                    cfg.model = MemoryModel::Paged;
+                    break;
+                case MemoryModel::Paged:
+#if GOOF2_HAS_OS_VM
+                    cfg.model = MemoryModel::OSBacked;
+#else
+                    cfg.model = MemoryModel::Auto;
+#endif
+                    break;
+                case MemoryModel::OSBacked:
+                    cfg.model = MemoryModel::Auto;
+                    break;
+            }
         } else if (key == Term::Key::Enter) {
             if (!input.empty()) {
                 appendInputLines(log, input);
@@ -287,7 +326,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
                 executeExcept<CellT>(cells, cellPtr, input, cfg.optimize, cfg.eof, cfg.dynamicSize,
-                                     true);
+                                     cfg.model, true);
                 std::cout.rdbuf(oldbuf);
                 appendLines(log, oss.str());
             }

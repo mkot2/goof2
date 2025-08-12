@@ -51,6 +51,10 @@ cells at startup:
 ./goof2 --cw 16 program.bf
 ```
 
+Select a memory allocation strategy with `-mm <contiguous|fibonacci|paged|os>`. If omitted,
+the VM chooses a model heuristically. In the interactive REPL, press `F8` to cycle through
+the available models.
+
 ## Memory models
 
 The virtual machine grows its cell tape using several strategies:
@@ -62,6 +66,8 @@ The virtual machine grows its cell tape using several strategies:
 - **OS-backed** reserves memory from the operating system using virtual
   memory facilities. This model is used only when such APIs are available
   and otherwise falls back to the contiguous model.
+
+Use the `-mm` flag or the `F8` REPL shortcut to select a model explicitly.
 
 ## License
 

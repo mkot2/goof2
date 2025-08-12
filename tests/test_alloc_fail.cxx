@@ -18,12 +18,6 @@
 #define GOOF2_HAS_OS_VM 0
 #endif
 
-enum class MemoryModel { Contiguous, Paged, Fibonacci, OSBacked };
-
-template <typename CellT, bool Dynamic, bool Term, bool Sparse>
-int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                int eof, MemoryModel model);
-
 #if GOOF2_HAS_OS_VM
 static void* (*real_alloc)(size_t) = goof2::os_alloc;
 
@@ -42,8 +36,8 @@ static void test_initial_failure() {
     std::string code;
     std::ostringstream err;
     auto* old = std::cerr.rdbuf(err.rdbuf());
-    int ret =
-        executeImpl<uint8_t, true, false, false>(cells, ptr, code, true, 0, MemoryModel::OSBacked);
+    int ret = goof2::execute<uint8_t>(cells, ptr, code, true, 0, true, false,
+                                      goof2::MemoryModel::OSBacked);
     std::cerr.rdbuf(old);
     goof2::os_alloc = real_alloc;
     assert(ret == 0);
@@ -69,8 +63,8 @@ static void test_growth_failure() {
     std::string code = ">";
     std::ostringstream err;
     auto* old = std::cerr.rdbuf(err.rdbuf());
-    int ret =
-        executeImpl<uint8_t, true, false, false>(cells, ptr, code, true, 0, MemoryModel::OSBacked);
+    int ret = goof2::execute<uint8_t>(cells, ptr, code, true, 0, true, false,
+                                      goof2::MemoryModel::OSBacked);
     std::cerr.rdbuf(old);
     goof2::os_alloc = real_alloc;
     assert(ret == 0);

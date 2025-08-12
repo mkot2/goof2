@@ -22,6 +22,7 @@ struct ReplConfig {
     int eof;
     size_t tapeSize;
     int cellWidth;
+    goof2::MemoryModel model;
 };
 
 template <typename CellT>
@@ -58,8 +59,9 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
 
 template <typename CellT>
 inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
-                          bool optimize, int eof, bool dynamicSize, bool term = false) {
-    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term);
+                          bool optimize, int eof, bool dynamicSize, goof2::MemoryModel model,
+                          bool term = false) {
+    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term, model);
     switch (ret) {
         case 1:
             std::cout << Term::color_fg(Term::Color::Name::Red)
