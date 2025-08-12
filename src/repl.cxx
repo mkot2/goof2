@@ -317,10 +317,6 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                 on = false;
             } else if (input == "clear") {
                 resetContext();
-            } else if (input == "dump") {
-                std::ostringstream oss;
-                dumpMemory<CellT>(cells, cellPtr, oss);
-                appendLines(log, oss.str());
             } else if (input.rfind("load ", 0) == 0) {
                 std::string path = input.substr(5);
                 path.erase(0, path.find_first_not_of(" \t"));
@@ -344,7 +340,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                     }
                 }
             } else if (input == "help") {
-                log.push_back("Commands: help, dump, load <file>, clear, exit/quit");
+                log.push_back("Commands: help, load <file>, clear, exit/quit");
             } else if (!input.empty()) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
