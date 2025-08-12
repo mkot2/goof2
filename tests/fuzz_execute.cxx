@@ -1,9 +1,12 @@
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "vm.hxx"
@@ -59,10 +62,20 @@ int main() {
         auto *cinbuf = std::cin.rdbuf(in.rdbuf());
         auto *coutbuf = std::cout.rdbuf(out.rdbuf());
         std::cin.clear();
+        std::atomic_bool done{false};
+        std::thread watchdog([&done]() {
+            for (int i = 0; i < 100; ++i) {
+                if (done.load()) return;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            std::terminate();
+        });
         try {
             goof2::execute<uint8_t>(cells, ptr, code, true, 0, true, false);
         } catch (...) {
         }
+        done = true;
+        watchdog.join();
         std::cin.rdbuf(cinbuf);
         std::cout.rdbuf(coutbuf);
     }

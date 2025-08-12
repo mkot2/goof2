@@ -1,3 +1,5 @@
+option(enableFuzz "Enable fuzz tests" OFF)
+
 add_executable(vm_execute_tests
     test_execute.cxx
 )
@@ -42,14 +44,19 @@ target_link_libraries(vm_load_file_tests PRIVATE
 
 add_test(NAME vm_load_file_tests COMMAND vm_load_file_tests)
 
-add_executable(vm_execute_fuzz
-    fuzz_execute.cxx
-)
+if(enableFuzz)
+    add_executable(vm_execute_fuzz
+        fuzz_execute.cxx
+    )
 
-target_link_libraries(vm_execute_fuzz PRIVATE
-    vm
-    Warnings
-)
+    target_link_libraries(vm_execute_fuzz PRIVATE
+        vm
+        Warnings
+    )
+
+    add_test(NAME vm_execute_fuzz COMMAND vm_execute_fuzz)
+    set_tests_properties(vm_execute_fuzz PROPERTIES TIMEOUT 2 LABELS fuzz)
+endif()
 
 add_executable(vm_cli_eval_tests
     test_cli_eval.cxx
