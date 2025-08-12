@@ -106,14 +106,14 @@ int main(int argc, char* argv[]) {
         if (!in.is_open()) {
             std::cout << Term::color_fg(Term::Color::Name::Red)
                       << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " File could not be opened";
+                      << " File could not be opened" << std::endl;
             return 1;
         }
         std::string code((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         if (!in && !in.eof()) {
             std::cout << Term::color_fg(Term::Color::Name::Red)
                       << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " Error while reading file";
+                      << " Error while reading file" << std::endl;
             return 1;
         }
         switch (cfg.cellWidth) {
