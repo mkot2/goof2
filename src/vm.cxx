@@ -12,12 +12,15 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <regex>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
+
+#include "parallel.hxx"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -51,6 +54,8 @@ void (*os_free)(void*, size_t) = default_os_free;
 #endif
 
 using goof2::MemoryModel;
+
+std::mutex goof2::ioMutex;
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
@@ -626,9 +631,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         if (!braceStack.empty()) return 2;
 
         instructions.shrink_to_fit();
-        for (size_t i = 0; i < instructions.size(); ++i) {
-            instructions[i].jump = jtable[ops[i]];
-        }
+        goof2::parallelFor(0, instructions.size(),
+                           [&](size_t i) { instructions[i].jump = jtable[ops[i]]; });
     }
 
     auto insp = instructions.data();
@@ -638,9 +642,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     CellT* cell = cellBase + cellPtr;
     size_t osSize = cells.size();
     if constexpr (Sparse) {
-        for (size_t i = 0; i < cells.size(); ++i) {
+        goof2::parallelFor(0, cells.size(), [&](size_t i) {
             if (cells[i] != 0) sparseTape[i] = cells[i];
-        }
+        });
     }
     if constexpr (!Sparse) {
 #if GOOF2_HAS_OS_VM
@@ -865,6 +869,7 @@ _PUT_CHR:
         const char ch = static_cast<char>(OFFCELL());
         char buf[256];
         std::memset(buf, static_cast<int>(ch), sizeof(buf));
+        std::lock_guard<std::mutex> lock(goof2::ioMutex);
         while (count >= sizeof(buf)) {
             std::cout.write(buf, sizeof(buf));
             count -= sizeof(buf);
@@ -876,10 +881,14 @@ _PUT_CHR:
     }
     LOOP();
 
-
 _RAD_CHR:
     if constexpr (Dynamic) EXPAND_IF_NEEDED()
-    if (const int in = std::cin.get(); in == EOF) {
+    int in;
+    {
+        std::lock_guard<std::mutex> lock(goof2::ioMutex);
+        in = std::cin.get();
+    }
+    if (in == EOF) {
         switch (eof) {
             case 0:
                 break;

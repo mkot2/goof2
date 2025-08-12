@@ -18,6 +18,7 @@
 #endif
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,8 @@ struct ProfileInfo {
     double seconds = 0.0;
     std::vector<std::uint64_t> loopCounts{};
 };
+
+extern std::mutex ioMutex;
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
 /// @tparam CellT Cell width type (uint8_t, uint16_t, uint32_t, uint64_t)
 /// @param cells Vector of cells of type CellT.
