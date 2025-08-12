@@ -787,14 +787,11 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             return *(cell + off);
     };
 
-    // Really not my fault if we die here
     goto * insp->jump;
 
 #define LOOP() \
     insp++;    \
     goto * insp->jump
-// This is hell, and also, it probably would've been easier to not use pointers as i see now, but oh
-// well
 #define EXPAND_IF_NEEDED()                                                               \
     if constexpr (!Sparse) {                                                             \
         if (insp->offset > 0) {                                                          \
@@ -861,10 +858,9 @@ _JMP_NOT_ZER:
         insp -= insp->data;
     LOOP();
 
-_PUT_CHR: {
-    const unsigned char ch = static_cast<unsigned char>(OFFCELL());
-    size_t count = static_cast<size_t>(insp->data);
-    if (count) {
+_PUT_CHR:
+    if (size_t count = static_cast<size_t>(insp->data); count) {
+        const char ch = static_cast<char>(OFFCELL());
         char buf[256];
         std::memset(buf, static_cast<int>(ch), sizeof(buf));
         while (count >= sizeof(buf)) {
@@ -877,7 +873,7 @@ _PUT_CHR: {
         std::cout.flush();
     }
     LOOP();
-}
+
 
 _RAD_CHR:
     if constexpr (Dynamic) EXPAND_IF_NEEDED()
