@@ -31,6 +31,17 @@ target_link_libraries(vm_memory_model_tests PRIVATE
 
 add_test(NAME vm_memory_model_tests COMMAND vm_memory_model_tests)
 
+add_executable(vm_load_file_tests
+    test_load.cxx
+)
+
+target_link_libraries(vm_load_file_tests PRIVATE
+    vm
+    Warnings
+)
+
+add_test(NAME vm_load_file_tests COMMAND vm_load_file_tests)
+
 add_executable(vm_execute_fuzz
     fuzz_execute.cxx
 )
