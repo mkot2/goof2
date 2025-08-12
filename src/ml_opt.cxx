@@ -7,6 +7,7 @@
 #include "ml_opt.hxx"
 
 #include <fstream>
+#include <iostream>
 #include <regex>
 #include <string>
 #include <vector>
@@ -17,12 +18,25 @@ bool mlOptimizerEnabled = false;
 static std::vector<std::pair<std::regex, std::string>> loadModel() {
     std::vector<std::pair<std::regex, std::string>> rules;
     std::ifstream in("assets/ml_model.txt");
+    if (!in) {
+        std::cerr << "warning: could not open ML model file assets/ml_model.txt" << std::endl;
+        return rules;
+    }
     std::string line;
+    size_t lineNo = 0;
     while (std::getline(in, line)) {
+        ++lineNo;
         if (line.empty()) continue;
         auto tab = line.find('\t');
-        if (tab == std::string::npos) continue;
+        if (tab == std::string::npos) {
+            std::cerr << "warning: skipping malformed rule at line " << lineNo
+                      << ": missing tab delimiter" << std::endl;
+            continue;
+        }
         rules.emplace_back(std::regex(line.substr(0, tab)), line.substr(tab + 1));
+    }
+    if (rules.empty()) {
+        std::cerr << "warning: no ML optimization rules loaded" << std::endl;
     }
     return rules;
 }
