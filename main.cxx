@@ -5,6 +5,7 @@
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +47,7 @@ struct CmdArgs {
     int eof = 0;
     std::size_t tapeSize = 30000;
     int cellWidth = 8;
+    goof2::MemoryModel model = goof2::MemoryModel::Auto;
 };
 
 CmdArgs parseArgs(int argc, char* argv[]) {
@@ -92,6 +94,22 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             } else {
                 args.cellWidth = static_cast<int>(parsed);
             }
+        } else if (arg == "-mm" && i + 1 < argc) {
+            std::string mm = argv[++i];
+            std::transform(mm.begin(), mm.end(), mm.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (mm == "contiguous") {
+                args.model = goof2::MemoryModel::Contiguous;
+            } else if (mm == "fibonacci") {
+                args.model = goof2::MemoryModel::Fibonacci;
+            } else if (mm == "paged") {
+                args.model = goof2::MemoryModel::Paged;
+            } else if (mm == "os") {
+                args.model = goof2::MemoryModel::OSBacked;
+            } else {
+                std::cerr << "Unknown memory model: " << mm << std::endl;
+                args.help = true;
+            }
         }
     }
     return args;
@@ -107,7 +125,8 @@ int main(int argc, char* argv[]) {
     std::string filename = opts.filename;
     const bool dumpMemoryFlag = opts.dumpMemory;
     const bool help = opts.help;
-    ReplConfig cfg{opts.optimize, opts.dynamicTape, opts.eof, opts.tapeSize, opts.cellWidth};
+    ReplConfig cfg{opts.optimize, opts.dynamicTape, opts.eof,
+                   opts.tapeSize, opts.cellWidth,   opts.model};
     if (cfg.tapeSize == 0) {
         std::cout << Term::color_fg(Term::Color::Name::Red)
                   << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
@@ -144,29 +163,29 @@ int main(int argc, char* argv[]) {
         switch (cfg.cellWidth) {
             case 8: {
                 std::vector<uint8_t> cells(cfg.tapeSize, 0);
-                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                       cfg.dynamicSize);
+                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof, cfg.dynamicSize,
+                                       cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
                 break;
             }
             case 16: {
                 std::vector<uint16_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint16_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
                 break;
             }
             case 32: {
                 std::vector<uint32_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint32_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
                 break;
             }
             case 64: {
                 std::vector<uint64_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint64_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
                 break;
             }
@@ -237,8 +256,8 @@ void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr) {
 
 template <typename CellT>
 void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                   int eof, bool dynamicSize) {
-    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false);
+                   int eof, bool dynamicSize, goof2::MemoryModel model) {
+    int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false, model);
     switch (ret) {
         case 1:
             std::cerr << "ERROR: Unmatched close bracket";
@@ -261,6 +280,7 @@ int main(int argc, char* argv[]) {
     int eof = opts.eof;
     std::size_t tapeSize = opts.tapeSize;
     int cellWidth = opts.cellWidth;
+    goof2::MemoryModel model = opts.model;
     if (tapeSize == 0) {
         std::cout << "ERROR: Tape size must be positive; using default 30000" << std::endl;
         tapeSize = 30000;
@@ -292,25 +312,25 @@ int main(int argc, char* argv[]) {
     switch (cellWidth) {
         case 8: {
             std::vector<uint8_t> cells(tapeSize, 0);
-            executeExcept<uint8_t>(cells, cellPtr, code, optimize, eof, dynamicSize);
+            executeExcept<uint8_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
             if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
             break;
         }
         case 16: {
             std::vector<uint16_t> cells(tapeSize, 0);
-            executeExcept<uint16_t>(cells, cellPtr, code, optimize, eof, dynamicSize);
+            executeExcept<uint16_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
             if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
             break;
         }
         case 32: {
             std::vector<uint32_t> cells(tapeSize, 0);
-            executeExcept<uint32_t>(cells, cellPtr, code, optimize, eof, dynamicSize);
+            executeExcept<uint32_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
             if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
             break;
         }
         case 64: {
             std::vector<uint64_t> cells(tapeSize, 0);
-            executeExcept<uint64_t>(cells, cellPtr, code, optimize, eof, dynamicSize);
+            executeExcept<uint64_t>(cells, cellPtr, code, optimize, eof, dynamicSize, model);
             if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
             break;
         }

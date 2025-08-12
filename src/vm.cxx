@@ -49,6 +49,8 @@ void (*os_free)(void*, size_t) = default_os_free;
 }  // namespace goof2
 #endif
 
+using goof2::MemoryModel;
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -400,11 +402,9 @@ static void regex_replace_inplace(std::string& str, const std::regex& re, Callba
     str = std::move(result);
 }
 
-enum class MemoryModel { Contiguous, Paged, Fibonacci, OSBacked };
-
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                int eof, MemoryModel model) {
+                int eof, MemoryModel model, bool adaptive) {
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -678,8 +678,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         if constexpr (Sparse) return;  // sparse tape allocates on demand
         size_t needed = static_cast<size_t>(neededIndex + 1);
-        MemoryModel target = chooseModel(needed);
-        if (target != model) {
+        MemoryModel target = adaptive ? chooseModel(needed) : model;
+        if (adaptive && target != model) {
             if (target == MemoryModel::OSBacked) {
 #if GOOF2_HAS_OS_VM
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
@@ -1226,15 +1226,16 @@ static bool shouldUseSparse(std::string_view code) {
 
 template <typename CellT>
 int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                   int eof, bool dynamicSize, bool term) {
+                   int eof, bool dynamicSize, bool term, MemoryModel model) {
     int ret = 0;
-    MemoryModel model = MemoryModel::Contiguous;
+    bool adaptive = (model == MemoryModel::Auto);
+    if (adaptive) model = MemoryModel::Contiguous;
     bool sparse = shouldUseSparse(code);
     // Heuristic: small tapes use contiguous doubling, medium tapes use
     // Fibonacci growth to trade memory for fewer reallocations, large tapes
     // switch to fixed-size paged allocation, and very large tapes use
     // OS-backed virtual memory when available.
-    if (dynamicSize) {
+    if (dynamicSize && adaptive) {
 #if GOOF2_HAS_OS_VM
         if (cells.size() > (1u << 28))
             model = MemoryModel::OSBacked;
@@ -1248,36 +1249,36 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     if (dynamicSize) {
         if (sparse) {
             term ? ret = executeImpl<CellT, true, true, true>(cells, cellPtr, code, optimize, eof,
-                                                              model)
+                                                              model, adaptive)
                  : ret = executeImpl<CellT, true, false, true>(cells, cellPtr, code, optimize, eof,
-                                                               model);
+                                                               model, adaptive);
         } else {
             term ? ret = executeImpl<CellT, true, true, false>(cells, cellPtr, code, optimize, eof,
-                                                               model)
+                                                               model, adaptive)
                  : ret = executeImpl<CellT, true, false, false>(cells, cellPtr, code, optimize, eof,
-                                                                model);
+                                                                model, adaptive);
         }
     } else {
         if (sparse) {
             term ? ret = executeImpl<CellT, false, true, true>(cells, cellPtr, code, optimize, eof,
-                                                               model)
+                                                               model, adaptive)
                  : ret = executeImpl<CellT, false, false, true>(cells, cellPtr, code, optimize, eof,
-                                                                model);
+                                                                model, adaptive);
         } else {
             term ? ret = executeImpl<CellT, false, true, false>(cells, cellPtr, code, optimize, eof,
-                                                                model)
+                                                                model, adaptive)
                  : ret = executeImpl<CellT, false, false, false>(cells, cellPtr, code, optimize,
-                                                                 eof, model);
+                                                                 eof, model, adaptive);
         }
     }
     return ret;
 }
 
 template int goof2::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int, bool,
-                                     bool);
+                                     bool, goof2::MemoryModel);
 template int goof2::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool);
+                                      bool, bool, goof2::MemoryModel);
 template int goof2::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool);
+                                      bool, bool, goof2::MemoryModel);
 template int goof2::execute<uint64_t>(std::vector<uint64_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool);
+                                      bool, bool, goof2::MemoryModel);

@@ -26,6 +26,8 @@ namespace goof2 {
 extern void* (*os_alloc)(size_t);
 extern void (*os_free)(void*, size_t);
 #endif
+
+enum class MemoryModel { Auto, Contiguous, Fibonacci, Paged, OSBacked };
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
 /// @tparam CellT Cell width type (uint8_t, uint16_t, uint32_t, uint64_t)
 /// @param cells Vector of cells of type CellT.
@@ -41,6 +43,7 @@ extern void (*os_free)(void*, size_t);
 /// currently not handled.
 /// @param term A few tweaks necessary to make it operable multiple times on the same cells. Check
 /// GOOF2_DEFAULT_SAVE_STATE.
+/// @param model Memory allocation strategy. `Auto` selects a model heuristically.
 ///
 /// When dynamicSize is enabled the engine heuristically selects between a contiguous
 /// growth strategy, a Fibonacci-sized expansion scheme and a page-sized allocation
@@ -49,5 +52,6 @@ extern void (*os_free)(void*, size_t);
 template <typename CellT>
 int execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
             bool optimize = GOOF2_OPTIMIZE, int eof = GOOF2_DEFAULT_EOF_BEHAVIOUR,
-            bool dynamicSize = GOOF2_DYNAMIC_CELLS_SIZE, bool term = GOOF2_DEFAULT_SAVE_STATE);
+            bool dynamicSize = GOOF2_DYNAMIC_CELLS_SIZE, bool term = GOOF2_DEFAULT_SAVE_STATE,
+            MemoryModel model = MemoryModel::Auto);
 }  // namespace goof2
