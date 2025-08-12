@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
-project(goof2 LANGUAGES CXX)
+project(goof2 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 include(ProcessorCount)
@@ -21,6 +23,7 @@ endif()
 
 option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 option(GOOF2_ENABLE_REPL "Enable interactive REPL" ON)
+option(GooF2_USE_SLJIT "Enable SLJIT JIT support" OFF)
 
 if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(--coverage -O0 -g)
@@ -79,6 +82,17 @@ if(NOT simde_POPULATED)
 endif()
 set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
+if(GooF2_USE_SLJIT)
+    add_library(sljit STATIC
+        sljit/sljit_src/sljitLir.c
+        sljit/sljit_src/sljitUtils.c
+        sljit/sljit_src/sljitSerialize.c
+    )
+    target_include_directories(sljit PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/sljit/sljit_src>
+    )
+endif()
+
 set(VM_SOURCES
     src/vm.cxx
     include/vm.hxx
@@ -96,6 +110,11 @@ target_link_libraries(vm PRIVATE $<BUILD_INTERFACE:Warnings>)
 target_compile_options(vm PRIVATE
     $<$<CXX_COMPILER_ID:GNU>:-Wno-psabi>
 )
+if(GooF2_USE_SLJIT)
+    target_link_libraries(vm PRIVATE sljit)
+    target_compile_definitions(vm PUBLIC GOOF2_USE_SLJIT)
+    target_include_directories(vm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sljit/sljit_src)
+endif()
 
 set(EXEC_SOURCES
     main.cxx

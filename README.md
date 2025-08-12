@@ -90,4 +90,5 @@ This project is licensed under the terms of the GNU Affero General Public Licens
 It includes third-party components under separate licenses:
 - cpp-terminal (MIT), included via git submodule; see `cpp-terminal/LICENSE`
 - simde (MIT and CC0), included via git submodule; see `simde/COPYING`
+- sljit (BSD-2-Clause), included via git submodule; see `LICENSE.sljit`
 

@@ -21,6 +21,7 @@
 - Third-party components (included via git submodules):
   - cpp-terminal (MIT), see `cpp-terminal/LICENSE`
   - simde (MIT and CC0), see `simde/COPYING`
+  - sljit (BSD-2-Clause), see `LICENSE.sljit`
 
 ## Directory Notes
 - `src/` contains core source files.

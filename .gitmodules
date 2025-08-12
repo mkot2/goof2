@@ -4,3 +4,6 @@
 [submodule "simde"]
         path = simde
         url = https://github.com/simd-everywhere/simde
+[submodule "sljit"]
+	path = sljit
+	url = https://github.com/zherczeg/sljit
