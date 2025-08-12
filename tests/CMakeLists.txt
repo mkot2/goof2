@@ -2,6 +2,8 @@
 # timeout per test provides a buffer for slower environments while keeping
 # the overall suite under roughly one minute. The CLI evaluation test spins
 # up a subprocess and receives a slightly higher limit.
+option(enableFuzz "Enable fuzz tests" OFF)
+
 add_executable(vm_execute_tests
     test_execute.cxx
 )
@@ -50,14 +52,19 @@ target_link_libraries(vm_load_file_tests PRIVATE
 add_test(NAME vm_load_file_tests COMMAND vm_load_file_tests)
 set_tests_properties(vm_load_file_tests PROPERTIES TIMEOUT 5)
 
-add_executable(vm_execute_fuzz
-    fuzz_execute.cxx
-)
+if(enableFuzz)
+    add_executable(vm_execute_fuzz
+        fuzz_execute.cxx
+    )
 
-target_link_libraries(vm_execute_fuzz PRIVATE
-    vm
-    Warnings
-)
+    target_link_libraries(vm_execute_fuzz PRIVATE
+        vm
+        Warnings
+    )
+
+    add_test(NAME vm_execute_fuzz COMMAND vm_execute_fuzz)
+    set_tests_properties(vm_execute_fuzz PROPERTIES TIMEOUT 2 LABELS fuzz)
+endif()
 
 add_executable(vm_cli_eval_tests
     test_cli_eval.cxx
