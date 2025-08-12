@@ -62,6 +62,14 @@ unchanged to guarantee identical behavior in JIT mode.
 Goof2 can load additional rewrite rules learned from example programs. Enable
 them with `--ml-opt` and place the model file as documented in
 [docs/ml_optimizer.md](docs/ml_optimizer.md).
+### Adaptive selection
+
+When JIT support is built, the VM loads a lightweight model at startup and
+predicts whether JIT compilation will speed up a program based on its length and
+cell width.  The model chooses between the JIT and the interpreter
+automatically. Use `--jit` to force JIT execution or `--no-jit` to disable it.
+Each run appends profiling data to `jit_profile.csv`, which can be used to train
+new models via `tools/ml_jit_selector/train.py`.
 
 ## Usage
 
