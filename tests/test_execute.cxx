@@ -136,6 +136,22 @@ static void test_scan_stride() {
         assert(ptr == 0);
     }
     {
+        std::vector<CellT> cells(6, 0);
+        cells[5] = 1;
+        cells[3] = 1;
+        size_t ptr = 5;
+        run<CellT>("[<<]", cells, ptr);
+        assert(ptr == 1);
+    }
+    {
+        std::vector<CellT> cells(6, 0);
+        cells[1] = 1;
+        cells[3] = 1;
+        size_t ptr = 1;
+        run<CellT>("[>>]", cells, ptr);
+        assert(ptr == 5);
+    }
+    {
         std::vector<CellT> cells(2, 0);
         cells[0] = 1;
         size_t ptr = 1;

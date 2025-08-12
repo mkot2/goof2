@@ -1018,16 +1018,31 @@ _SCN_RGT: {
             off = simdScan0Fwd<CellT>(cell, end);
         } else if (step == 2) {
             unsigned phase = static_cast<unsigned>(cell - cellBase) & 1u;
-            off = simdScan0FwdStride<2, CellT>(cell, end, phase);
+            if (phase == 0)
+                off = simdScan0FwdStride<2, CellT>(cell, end, 0);
+            else {
+                off = 2;
+                while (cell + off < end && *(cell + off) != 0) off += 2;
+            }
         } else if (step == 4) {
             unsigned phase = static_cast<unsigned>(cell - cellBase) & 3u;
-            off = simdScan0FwdStride<4, CellT>(cell, end, phase);
+            if (phase == 0)
+                off = simdScan0FwdStride<4, CellT>(cell, end, 0);
+            else {
+                off = 4;
+                while (cell + off < end && *(cell + off) != 0) off += 4;
+            }
         } else if (step == 8) {
             unsigned phase = static_cast<unsigned>(cell - cellBase) & 7u;
-            off = simdScan0FwdStride<8, CellT>(cell, end, phase);
+            if (phase == 0)
+                off = simdScan0FwdStride<8, CellT>(cell, end, 0);
+            else {
+                off = 8;
+                while (cell + off < end && *(cell + off) != 0) off += 8;
+            }
         } else {
             // scalar fallback for arbitrary step
-            off = 0;
+            off = step;
             while (cell + off < end && *(cell + off) != 0) off += step;
         }
 
@@ -1091,7 +1106,13 @@ _SCN_LFT: {
         LOOP();
     } else if (step == 2) {
         unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 1u;
-        size_t back = simdScan0BackStride<2, CellT>(cellBase, cell, phaseAtP);
+        size_t back;
+        if (phaseAtP == 0)
+            back = simdScan0BackStride<2, CellT>(cellBase, cell, 0);
+        else {
+            back = 2;
+            while (cell >= cellBase + back && *(cell - back) != 0) back += 2;
+        }
         cell -= back;
         if (cell < cellBase) {
             cell = cellBase;
@@ -1102,7 +1123,13 @@ _SCN_LFT: {
         LOOP();
     } else if (step == 4) {
         unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 3u;
-        size_t back = simdScan0BackStride<4, CellT>(cellBase, cell, phaseAtP);
+        size_t back;
+        if (phaseAtP == 0)
+            back = simdScan0BackStride<4, CellT>(cellBase, cell, 0);
+        else {
+            back = 4;
+            while (cell >= cellBase + back && *(cell - back) != 0) back += 4;
+        }
         cell -= back;
         if (cell < cellBase) {
             cell = cellBase;
@@ -1113,7 +1140,13 @@ _SCN_LFT: {
         LOOP();
     } else if (step == 8) {
         unsigned phaseAtP = static_cast<unsigned>(cell - cellBase) & 7u;
-        size_t back = simdScan0BackStride<8, CellT>(cellBase, cell, phaseAtP);
+        size_t back;
+        if (phaseAtP == 0)
+            back = simdScan0BackStride<8, CellT>(cellBase, cell, 0);
+        else {
+            back = 8;
+            while (cell >= cellBase + back && *(cell - back) != 0) back += 8;
+        }
         cell -= back;
         if (cell < cellBase) {
             cell = cellBase;
@@ -1124,10 +1157,9 @@ _SCN_LFT: {
         LOOP();
     } else {
         // scalar fallback for arbitrary step
-        while (cell >= cellBase && *cell != 0) {
-            if ((cell - cellBase) < static_cast<ptrdiff_t>(step)) break;
-            cell -= step;
-        }
+        size_t back = step;
+        while (cell >= cellBase + back && *(cell - back) != 0) back += step;
+        cell -= back;
         if (cell < cellBase) {
             cell = cellBase;
             cellPtr = 0;
