@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -64,23 +65,51 @@ CmdArgs parseArgs(int argc, char* argv[]) {
         } else if (arg == "-dts") {
             args.dynamicTape = true;
         } else if (arg == "-eof" && i + 1 < argc) {
-            args.eof = std::stoi(argv[++i]);
+            const char* val = argv[++i];
+            char* end = nullptr;
+            long parsed = std::strtol(val, &end, 10);
+            if (end == val || *end != '\0') {
+                std::cerr << "Invalid EOF mode: " << val << std::endl;
+                args.help = true;
+            } else {
+                args.eof = static_cast<int>(parsed);
+            }
         } else if (arg == "-ts" && i + 1 < argc) {
-            args.tapeSize = static_cast<std::size_t>(std::stoull(argv[++i]));
+            const char* val = argv[++i];
+            char* end = nullptr;
+            unsigned long long parsed = std::strtoull(val, &end, 10);
+            if (val[0] == '-' || end == val || *end != '\0' || parsed == 0) {
+                std::cerr << "Tape size must be a positive integer: " << val << std::endl;
+                args.help = true;
+            } else {
+                args.tapeSize = static_cast<std::size_t>(parsed);
+            }
         } else if (arg == "-cw" && i + 1 < argc) {
-            args.cellWidth = std::stoi(argv[++i]);
+            const char* val = argv[++i];
+            char* end = nullptr;
+            long parsed = std::strtol(val, &end, 10);
+            if (end == val || *end != '\0' || parsed <= 0) {
+                std::cerr << "Cell width must be a positive integer: " << val << std::endl;
+                args.help = true;
+            } else {
+                args.cellWidth = static_cast<int>(parsed);
+            }
         } else if (arg == "-mm" && i + 1 < argc) {
             std::string mm = argv[++i];
             std::transform(mm.begin(), mm.end(), mm.begin(),
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (mm == "contiguous")
+            if (mm == "contiguous") {
                 args.model = goof2::MemoryModel::Contiguous;
-            else if (mm == "fibonacci")
+            } else if (mm == "fibonacci") {
                 args.model = goof2::MemoryModel::Fibonacci;
-            else if (mm == "paged")
+            } else if (mm == "paged") {
                 args.model = goof2::MemoryModel::Paged;
-            else if (mm == "os")
+            } else if (mm == "os") {
                 args.model = goof2::MemoryModel::OSBacked;
+            } else {
+                std::cerr << "Unknown memory model: " << mm << std::endl;
+                args.help = true;
+            }
         }
     }
     return args;
@@ -121,14 +150,14 @@ int main(int argc, char* argv[]) {
         if (!in.is_open()) {
             std::cout << Term::color_fg(Term::Color::Name::Red)
                       << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " File could not be opened";
+                      << " File could not be opened" << std::endl;
             return 1;
         }
         std::string code((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         if (!in && !in.eof()) {
             std::cout << Term::color_fg(Term::Color::Name::Red)
                       << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " Error while reading file";
+                      << " Error while reading file" << std::endl;
             return 1;
         }
         switch (cfg.cellWidth) {

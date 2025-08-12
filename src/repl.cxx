@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
 #include <sstream>
 
 #include "cpp-terminal/color.hpp"
@@ -320,8 +321,29 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                 std::ostringstream oss;
                 dumpMemory<CellT>(cells, cellPtr, oss);
                 appendLines(log, oss.str());
+            } else if (input.rfind("load ", 0) == 0) {
+                std::string path = input.substr(5);
+                path.erase(0, path.find_first_not_of(" \t"));
+                if (path.empty()) {
+                    log.push_back("ERROR: missing file path");
+                } else {
+                    std::ifstream file(path);
+                    if (!file) {
+                        log.push_back("ERROR: failed to open file: " + path);
+                    } else {
+                        std::ostringstream buf;
+                        buf << file.rdbuf();
+                        std::string code = buf.str();
+                        std::ostringstream oss;
+                        std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
+                        executeExcept<CellT>(cells, cellPtr, code, cfg.optimize, cfg.eof,
+                                             cfg.dynamicSize, cfg.model, true);
+                        std::cout.rdbuf(oldbuf);
+                        appendLines(log, oss.str());
+                    }
+                }
             } else if (input == "help") {
-                log.push_back("Commands: help, dump, clear, exit/quit");
+                log.push_back("Commands: help, dump, load <file>, clear, exit/quit");
             } else if (!input.empty()) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
