@@ -14,6 +14,7 @@
 
 ## Coding Style
 - Follow the existing C++ code style in this repository.
+- Use camelCase for identifiers, including variables, functions, and files.
 - Format C++ sources and headers with `clang-format` before committing.
 
 ## Licensing
@@ -23,8 +24,11 @@
   - simde (MIT and CC0), see `simde/COPYING`
   - sljit (BSD-2-Clause), see `LICENSE.sljit`
 
-## Directory Notes
-- `src/` contains core source files.
-- `include/` holds public headers.
-- `tests/` contains unit and fuzz tests.
-- `main.cxx` is the entry point for the command-line interface.
+## Directory Structure
+- `src/`: core implementation files; organize subdirectories by feature.
+- `include/`: public headers mirroring the layout of `src/`.
+- `tests/`: unit and fuzz tests following the same structure as `src/`.
+- `docs/`: project documentation.
+- `cpp-terminal/`, `simde/`, `sljit/`: third-party submodules; avoid modifying them directly.
+- `main.cxx`: entry point for the command-line interface.
+- Generated artifacts should reside in the `build/` directory, which is ignored by version control.
