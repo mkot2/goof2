@@ -92,7 +92,7 @@ target_include_directories(vm
     PRIVATE
         ${SIMDE_INCLUDE_DIR}
 )
-target_link_libraries(vm PRIVATE Warnings)
+target_link_libraries(vm PRIVATE $<BUILD_INTERFACE:Warnings>)
 target_compile_options(vm PRIVATE
     $<$<CXX_COMPILER_ID:GNU>:-Wno-psabi>
 )
@@ -115,7 +115,7 @@ add_executable(goof2
 
 target_link_libraries(goof2 PRIVATE
     vm
-    Warnings
+    $<BUILD_INTERFACE:Warnings>
 )
 if(GOOF2_ENABLE_REPL)
     target_link_libraries(goof2 PRIVATE cpp-terminal::cpp-terminal)
