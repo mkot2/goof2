@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "ml_opt.hxx"
 #include "parallel.hxx"
 
 #if defined(_WIN32)
@@ -504,6 +505,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 code = std::regex_replace(code, std::regex(R"((?:^|([RL\]]))C*([\+\-]+))"),
                                           "$1S$2");  // We can't really assume in term
         }
+
+        goof2::applyMlOptimizer(code);
 
         std::vector<size_t> braceStack;
         int16_t offset = 0;

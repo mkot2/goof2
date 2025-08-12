@@ -6,6 +6,10 @@ This content is published from the `docs/` directory of the repository. Enable
 GitHub Pages in your repository settings, selecting the `docs` folder on the
 `main` branch.
 
+## Features
+
+- [Machine learning optimizer](ml_optimizer.md)
+
 ## License
 
 goof2 is licensed under the GNU Affero General Public License v3.0 or later.

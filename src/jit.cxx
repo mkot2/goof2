@@ -13,6 +13,7 @@
 #include <string_view>
 #include <vector>
 
+#include "ml_opt.hxx"
 #include "parallel.hxx"
 #include "vm.hxx"
 
@@ -119,6 +120,8 @@ static int buildInstructions(std::string& code, bool optimize,
 
         code = std::regex_replace(code, std::regex(R"((?:^|([RL\]]))C*([\+\-]+))"), "$1S$2");
     }
+
+    applyMlOptimizer(code);
 
     std::vector<size_t> braceStack;
     std::vector<int> loopIdStack;
