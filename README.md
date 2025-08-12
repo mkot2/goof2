@@ -51,6 +51,12 @@ cells at startup:
 ./goof2 --cw 16 program.bf
 ```
 
+Add `--profile` to measure execution time and instruction count:
+
+```sh
+./goof2 --profile program.bf
+```
+
 Select a memory allocation strategy with `-mm <contiguous|fibonacci|paged|os>`. If omitted,
 the VM chooses a model heuristically. In the interactive REPL, press `F8` to cycle through
 the available models.
