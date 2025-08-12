@@ -159,29 +159,29 @@ int main(int argc, char* argv[]) {
         switch (cfg.cellWidth) {
             case 8: {
                 std::vector<uint8_t> cells(cfg.tapeSize, 0);
-                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                       cfg.dynamicSize);
+                executeExcept<uint8_t>(cells, cellPtr, code, cfg.optimize, cfg.eof, cfg.dynamicSize,
+                                       cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint8_t>(cells, cellPtr);
                 break;
             }
             case 16: {
                 std::vector<uint16_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint16_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint16_t>(cells, cellPtr);
                 break;
             }
             case 32: {
                 std::vector<uint32_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint32_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint32_t>(cells, cellPtr);
                 break;
             }
             case 64: {
                 std::vector<uint64_t> cells(cfg.tapeSize, 0);
                 executeExcept<uint64_t>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                        cfg.dynamicSize);
+                                        cfg.dynamicSize, cfg.model);
                 if (dumpMemoryFlag) dumpMemory<uint64_t>(cells, cellPtr);
                 break;
             }

@@ -337,7 +337,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                         std::ostringstream oss;
                         std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
                         executeExcept<CellT>(cells, cellPtr, code, cfg.optimize, cfg.eof,
-                                             cfg.dynamicSize, cfg.model, true);
+                                             cfg.dynamicSize, cfg.model, nullptr, true);
 
                         std::cout.rdbuf(oldbuf);
                         appendLines(log, oss.str());
@@ -349,7 +349,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                 std::ostringstream oss;
                 std::streambuf* oldbuf = std::cout.rdbuf(oss.rdbuf());
                 executeExcept<CellT>(cells, cellPtr, input, cfg.optimize, cfg.eof, cfg.dynamicSize,
-                                     cfg.model, true);
+                                     cfg.model, nullptr, true);
                 std::cout.rdbuf(oldbuf);
                 appendLines(log, oss.str());
             }
