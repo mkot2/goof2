@@ -57,6 +57,11 @@ sljit supports x86 (32/64), ARM (32/64), RISC-V (32/64), s390x (64), PowerPC
 may not be available on every platform. The regex optimization step remains
 unchanged to guarantee identical behavior in JIT mode.
 
+## Machine learning optimizer
+
+Goof2 can load additional rewrite rules learned from example programs. Enable
+them with `--ml-opt` and place the model file as documented in
+[docs/ml_optimizer.md](docs/ml_optimizer.md).
 ### Adaptive selection
 
 When JIT support is built, the VM loads a lightweight model at startup and
