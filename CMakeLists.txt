@@ -23,7 +23,7 @@ endif()
 
 option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 option(GOOF2_ENABLE_REPL "Enable interactive REPL" ON)
-option(GooF2_USE_SLJIT "Enable SLJIT JIT support" OFF)
+option(GOOF2_USE_SLJIT "Enable SLJIT JIT support" ON)
 
 if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(--coverage -O0 -g)
