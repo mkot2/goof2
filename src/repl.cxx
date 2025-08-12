@@ -113,7 +113,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
 
     const std::size_t promptWidth = 2;
     const std::size_t wrap = cols > promptWidth ? cols - promptWidth : 1;
-    const std::size_t maxInputLines = rows > 2 ? rows - 2 : 1;
+    const std::size_t maxInputLines = rows > 4 ? rows - 4 : 1;
     const std::size_t maxChars = wrap * maxInputLines;
     std::size_t startPos = input.size() > maxChars ? input.size() - maxChars : 0;
     std::vector<std::string> lines;
@@ -123,7 +123,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
     if (lines.empty()) lines.push_back("");
 
     const std::size_t inputLines = lines.size();
-    const std::size_t logHeight = rows > (2 + inputLines) ? rows - (2 + inputLines) : 0;
+    const std::size_t logHeight = rows > (4 + inputLines) ? rows - (4 + inputLines) : 0;
     const std::vector<std::string>& view = (tab == Tab::Log ? log : dump);
     std::size_t start = view.size() > logHeight ? view.size() - logHeight : 0;
     for (std::size_t i = 0; i < logHeight && (start + i) < view.size(); ++i) {
@@ -134,12 +134,16 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         }
     }
 
+    scr.print_str(1, logHeight + 1, std::string(cols, '-'));
+
     for (std::size_t i = 0; i < inputLines; ++i) {
         std::string promptLine = (i == 0 ? "$ " : "  ") + lines[i];
-        std::size_t row = logHeight + 1 + i;
+        std::size_t row = logHeight + 2 + i;
         scr.print_str(1, row, promptLine);
         highlightBf(scr, 3, row, lines[i]);
     }
+
+    scr.print_str(1, logHeight + 2 + inputLines, std::string(cols, '-'));
 
     std::string menu =
         "[F1]opt:" + std::string(cfg.optimize ? "on" : "off") +
@@ -148,8 +152,8 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         " [F4]eof:" + (menuState == MenuState::EOFVal ? ">" + menuInput : std::to_string(cfg.eof)) +
         " [F5]cw:" +
         (menuState == MenuState::CellWidth ? ">" + menuInput : std::to_string(cfg.cellWidth)) +
-        " [F6]" + (tab == Tab::Log ? "log*" : "log") + " [F7]" +
-        (tab == Tab::Memory ? "mem*" : "mem") + " [F8]mm:" + modelName(cfg.model);
+        " [F6]mm:" + modelName(cfg.model) + " [F7]" + (tab == Tab::Log ? "log*" : "log") + " [F8]" +
+        (tab == Tab::Memory ? "mem*" : "mem");
     if (menu.size() < cols)
         menu += std::string(cols - menu.size(), ' ');
     else
@@ -166,7 +170,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
     scr.print_str(1, rows, status);
 
     std::size_t cursor_col = std::min(promptWidth + lines.back().size() + 1, cols);
-    std::size_t cursor_row = logHeight + lines.size();
+    std::size_t cursor_row = logHeight + 1 + lines.size();
     scr.set_cursor_pos(cursor_col, cursor_row);
     return scr.render(1, 1, true);
 }
@@ -281,10 +285,6 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
             menuState = MenuState::CellWidth;
             menuInput.clear();
         } else if (key == Term::Key::F6) {
-            tab = Tab::Log;
-        } else if (key == Term::Key::F7) {
-            tab = Tab::Memory;
-        } else if (key == Term::Key::F8) {
             using goof2::MemoryModel;
             switch (cfg.model) {
                 case MemoryModel::Auto:
@@ -307,6 +307,10 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                     cfg.model = MemoryModel::Auto;
                     break;
             }
+        } else if (key == Term::Key::F7) {
+            tab = Tab::Log;
+        } else if (key == Term::Key::F8) {
+            tab = Tab::Memory;
         } else if (key == Term::Key::Enter) {
             if (!input.empty()) {
                 appendInputLines(log, input);
