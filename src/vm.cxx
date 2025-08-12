@@ -990,9 +990,16 @@ _MUL_CPY:
 _SCN_RGT: {
     const unsigned step = static_cast<unsigned>(insp->data);
     if constexpr (Sparse) {
+        if (sparseTape[sparseIndex] == 0) {
+            LOOP();
+        }
         do {
             sparseIndex += step;
         } while (sparseTape[sparseIndex] != 0);
+        LOOP();
+    }
+
+    if (*cell == 0) {
         LOOP();
     }
 
@@ -1048,6 +1055,9 @@ _SCN_RGT: {
 _SCN_LFT: {
     const unsigned step = static_cast<unsigned>(insp->data);
     if constexpr (Sparse) {
+        if (sparseTape[sparseIndex] == 0) {
+            LOOP();
+        }
         while (sparseIndex >= step && sparseTape[sparseIndex] != 0) {
             sparseIndex -= step;
         }
@@ -1063,6 +1073,10 @@ _SCN_LFT: {
         cellPtr = 0;
         std::cerr << "cell pointer moved before start" << std::endl;
         return -1;
+    }
+
+    if (*cell == 0) {
+        LOOP();
     }
 
     if (step == 1) {
