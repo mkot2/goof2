@@ -42,6 +42,21 @@ cmake --build build --target coverage
 An HTML report will be generated in `build/coverage`. Open
 `build/coverage/index.html` in a browser to explore the coverage data.
 
+## JIT compilation
+
+Optional JIT support using [sljit](https://zherczeg.github.io/sljit/) can be
+enabled at build time:
+
+```sh
+cmake -S . -B build -DGooF2_USE_SLJIT=ON
+cmake --build build
+```
+
+sljit supports x86 (32/64), ARM (32/64), RISC-V (32/64), s390x (64), PowerPC
+(32/64), LoongArch (64), and MIPS (32/64). JIT requires executable memory and
+may not be available on every platform. The regex optimization step remains
+unchanged to guarantee identical behavior in JIT mode.
+
 ## Usage
 
 The VM can execute a Brainfuck program from a file using `-i <file>` or directly from
@@ -86,8 +101,11 @@ Use the `-mm` flag or the `F8` REPL shortcut to select a model explicitly.
 
 ## License
 
-This project is licensed under the terms of the GNU Affero General Public License v3.0 or later.
-It includes third-party components under separate licenses:
+This project is licensed under the terms of the GNU Affero General Public
+License v3.0 or later. When JIT support is enabled, the executable links against
+[sljit](https://zherczeg.github.io/sljit/), which is released under the
+Simplified BSD license. Review the compatibility of these licenses for your
+intended use. It includes third-party components under separate licenses:
 - cpp-terminal (MIT), included via git submodule; see `cpp-terminal/LICENSE`
 - simde (MIT and CC0), included via git submodule; see `simde/COPYING`
 - sljit (BSD-2-Clause), included via git submodule; see `LICENSE.sljit`
