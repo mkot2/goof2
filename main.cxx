@@ -81,7 +81,7 @@ struct CmdArgs {
     int cellWidth = 8;
     goof2::MemoryModel model = goof2::MemoryModel::Auto;
     JitMode jitMode = JitMode::Auto;
-    bool mlOpt = false;
+    bool mlOpt = true;
 };
 
 CmdArgs parseArgs(int argc, char* argv[]) {
@@ -139,6 +139,8 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             args.jitMode = JitMode::Disable;
         } else if (arg == "--ml-opt") {
             args.mlOpt = true;
+        } else if (arg == "--no-ml-opt") {
+            args.mlOpt = false;
         } else if (arg == "-mm" && i + 1 < argc) {
             std::string mm = argv[++i];
             std::transform(mm.begin(), mm.end(), mm.begin(),
@@ -173,7 +175,7 @@ void printHelp(const char* prog) {
               << "  --jit            Force JIT execution\n"
               << "  --no-jit         Disable JIT\n"
               << "  --profile        Print execution profile\n"
-              << "  --ml-opt         Enable ML-based optimizer\n"
+              << "  --no-ml-opt      Disable ML-based optimizer (enabled by default)\n"
               << "  -mm <model>      Memory model (auto, contiguous, fibonacci, paged, os)\n"
               << "  -h               Show this help message" << std::endl;
 }

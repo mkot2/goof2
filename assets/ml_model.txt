@@ -1,3 +1,4 @@
-// Cancel decrement followed by increment
-+-	-+
--+	+-
+# Auto-generated model
++-      +
+-+      -
+><      >
