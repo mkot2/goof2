@@ -17,7 +17,6 @@ It includes third-party components under separate licenses:
 
 - cpp-terminal (MIT), see `../cpp-terminal/LICENSE`
 - simde (MIT and CC0), see `../simde/COPYING`
-- sljit (BSD-2-Clause), see `../LICENSE.sljit`
 
 ## Development
 

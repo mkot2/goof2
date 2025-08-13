@@ -81,18 +81,6 @@ target_compile_definitions(vm_cli_eval_tests PRIVATE
 add_test(NAME vm_cli_eval_tests COMMAND vm_cli_eval_tests)
 set_tests_properties(vm_cli_eval_tests PROPERTIES TIMEOUT 15)
 
-add_executable(vm_jit_regression_tests
-    test_jit_regression.cxx
-)
-
-target_link_libraries(vm_jit_regression_tests PRIVATE
-    vm
-    Warnings
-)
-
-add_test(NAME vm_jit_regression_tests COMMAND vm_jit_regression_tests)
-set_tests_properties(vm_jit_regression_tests PROPERTIES TIMEOUT 5)
-
 add_executable(vm_parallel_tests
     test_parallel.cxx
 )
