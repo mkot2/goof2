@@ -16,7 +16,6 @@
 
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/style.hpp"
-#include "jit_selector.hxx"
 #include "vm.hxx"
 
 struct ReplConfig {
@@ -67,19 +66,8 @@ template <typename CellT>
 inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
                           bool optimize, int eof, bool dynamicSize, goof2::MemoryModel model,
                           goof2::ProfileInfo* profile = nullptr, bool term = false) {
-    const char* logPath = std::getenv("GOOF2_JIT_LOG");
-    goof2::ProfileInfo localProf;
-    goof2::ProfileInfo* profPtr = (profile || logPath) ? (profile ? profile : &localProf) : nullptr;
-#if GOOF2_USE_SLJIT
-    bool useJit = shouldUseJit(code.size(), sizeof(CellT) * 8);
-    int ret = useJit ? goof2::execute_jit<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize,
-                                                 term, model, profPtr)
-                     : goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term,
-                                             model, profPtr);
-#else
     int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term, model,
-                                    profPtr);
-#endif
+                                    profile);
     switch (ret) {
         case 1:
             std::cout << Term::color_fg(Term::Color::Name::Red)
@@ -92,7 +80,6 @@ inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::strin
                       << " Unmatched open bracket";
             break;
     }
-    if (profile) *profile = *profPtr;
 }
 
 extern template int runRepl<uint8_t>(std::vector<uint8_t>&, size_t&, ReplConfig&);

@@ -2,7 +2,7 @@
 
 /*
     Goof2 - An optimizing brainfuck VM
-    Shared helpers for JIT and VM
+    Shared helpers for VM
     Published under the GNU AGPL-3.0-or-later license
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later

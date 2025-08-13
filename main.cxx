@@ -6,7 +6,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include <algorithm>
 #include <cctype>
-#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -16,7 +15,6 @@
 #include <string_view>
 #include <vector>
 
-#include "jit_selector.hxx"
 #include "ml_opt.hxx"
 #include "vm.hxx"
 #ifdef GOOF2_ENABLE_REPL
@@ -40,33 +38,6 @@ static void enable_vt_mode() {
 #endif
 #endif
 
-JitMode jitMode = JitMode::Auto;
-JitModel jitModel{};
-bool jitModelLoaded = false;
-
-bool loadJitModel(const char* path, JitModel& model) {
-    std::ifstream in(path);
-    if (!in.is_open()) return false;
-    in >> model.coefLength >> model.coefWidth >> model.intercept;
-    return static_cast<bool>(in);
-}
-
-bool shouldUseJit(std::size_t programLength, int cellWidth) {
-#if GOOF2_USE_SLJIT
-    if (jitMode == JitMode::Force) return true;
-    if (jitMode == JitMode::Disable) return false;
-    if (!jitModelLoaded) return true;
-    double score = jitModel.coefLength * static_cast<double>(programLength) +
-                   jitModel.coefWidth * static_cast<double>(cellWidth) + jitModel.intercept;
-    double prob = 1.0 / (1.0 + std::exp(-score));
-    return prob >= 0.5;
-#else
-    (void)programLength;
-    (void)cellWidth;
-    return false;
-#endif
-}
-
 namespace {
 struct CmdArgs {
     std::string filename;
@@ -80,7 +51,6 @@ struct CmdArgs {
     std::size_t tapeSize = 30000;
     int cellWidth = 8;
     goof2::MemoryModel model = goof2::MemoryModel::Auto;
-    JitMode jitMode = JitMode::Auto;
     bool mlOpt = true;
 };
 
@@ -133,10 +103,6 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             }
         } else if (arg == "--profile") {
             args.profile = true;
-        } else if (arg == "--jit") {
-            args.jitMode = JitMode::Force;
-        } else if (arg == "--no-jit") {
-            args.jitMode = JitMode::Disable;
         } else if (arg == "--ml-opt") {
             args.mlOpt = true;
         } else if (arg == "--no-ml-opt") {
@@ -172,8 +138,6 @@ void printHelp(const char* prog) {
               << "  -eof <value>     Set EOF return value\n"
               << "  -ts <size>       Tape size in cells (default 30000)\n"
               << "  -cw <width>      Cell width in bits (8,16,32,64)\n"
-              << "  --jit            Force JIT execution\n"
-              << "  --no-jit         Disable JIT\n"
               << "  --profile        Print execution profile\n"
               << "  --no-ml-opt      Disable ML-based optimizer (enabled by default)\n"
               << "  -mm <model>      Memory model (auto, contiguous, fibonacci, paged, os)\n"
@@ -187,8 +151,6 @@ int main(int argc, char* argv[]) {
     enable_vt_mode();
 #endif
     CmdArgs opts = parseArgs(argc, argv);
-    jitMode = opts.jitMode;
-    jitModelLoaded = loadJitModel("tools/ml_jit_selector/model.dat", jitModel);
     goof2::mlOptimizerEnabled = opts.mlOpt;
     std::string filename = opts.filename;
     std::string evalCode = opts.evalCode;
@@ -355,7 +317,7 @@ int main(int argc, char* argv[]) {
     }
     return 0;
 }
-#else  // !GOOF2_ENABLE_REPL
+#else   // !GOOF2_ENABLE_REPL
 namespace {
 template <typename CellT>
 void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr) {
@@ -381,26 +343,8 @@ template <typename CellT>
 void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                    int eof, bool dynamicSize, goof2::MemoryModel model,
                    goof2::ProfileInfo* profile) {
-    const char* logPath = std::getenv("GOOF2_JIT_LOG");
-    goof2::ProfileInfo localProf;
-    goof2::ProfileInfo* profPtr = (profile || logPath) ? (profile ? profile : &localProf) : nullptr;
-#if GOOF2_USE_SLJIT
-    bool useJit = shouldUseJit(code.size(), sizeof(CellT) * 8);
-    int ret = useJit ? goof2::execute_jit<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize,
-                                                 false, model, profPtr)
-                     : goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize,
-                                             false, model, profPtr);
-#else
-    bool useJit = false;
     int ret = goof2::execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, false, model,
-                                    profPtr);
-#endif
-    if (logPath && profPtr) {
-        std::ofstream ds(logPath, std::ios::app);
-        if (ds)
-            ds << code.size() << ',' << sizeof(CellT) * 8 << ',' << (useJit ? 1 : 0) << ','
-               << profPtr->instructions << ',' << profPtr->seconds << '\n';
-    }
+                                    profile);
     switch (ret) {
         case 1:
             std::cerr << "ERROR: Unmatched close bracket";
@@ -409,14 +353,11 @@ void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
             std::cerr << "ERROR: Unmatched open bracket";
             break;
     }
-    if (profile && profPtr) *profile = *profPtr;
 }
 }  // namespace
 
 int main(int argc, char* argv[]) {
     CmdArgs opts = parseArgs(argc, argv);
-    jitMode = opts.jitMode;
-    jitModelLoaded = loadJitModel("tools/ml_jit_selector/model.dat", jitModel);
     goof2::mlOptimizerEnabled = opts.mlOpt;
 
     std::string filename = opts.filename;

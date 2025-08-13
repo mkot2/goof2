@@ -65,10 +65,4 @@ int execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
             bool optimize = GOOF2_OPTIMIZE, int eof = GOOF2_DEFAULT_EOF_BEHAVIOUR,
             bool dynamicSize = GOOF2_DYNAMIC_CELLS_SIZE, bool term = GOOF2_DEFAULT_SAVE_STATE,
             MemoryModel model = MemoryModel::Auto, ProfileInfo* profile = nullptr);
-
-template <typename CellT>
-int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
-                bool optimize = GOOF2_OPTIMIZE, int eof = GOOF2_DEFAULT_EOF_BEHAVIOUR,
-                bool dynamicSize = GOOF2_DYNAMIC_CELLS_SIZE, bool term = GOOF2_DEFAULT_SAVE_STATE,
-                MemoryModel model = MemoryModel::Auto, ProfileInfo* profile = nullptr);
 }  // namespace goof2
