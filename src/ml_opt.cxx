@@ -33,7 +33,12 @@ static std::vector<std::pair<std::regex, std::string>> loadModel() {
                       << ": missing tab delimiter" << std::endl;
             continue;
         }
-        rules.emplace_back(std::regex(line.substr(0, tab)), line.substr(tab + 1));
+        try {
+            rules.emplace_back(std::regex(line.substr(0, tab)), line.substr(tab + 1));
+        } catch (const std::regex_error& e) {
+            std::cerr << "warning: skipping invalid regex at line " << lineNo << ": " << e.what()
+                      << std::endl;
+        }
     }
     if (rules.empty()) {
         std::cerr << "warning: no ML optimization rules loaded" << std::endl;
