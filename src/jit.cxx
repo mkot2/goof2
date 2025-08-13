@@ -13,6 +13,7 @@
 #include <string_view>
 #include <vector>
 
+#include "bfShared.hxx"
 #include "ml_opt.hxx"
 #include "parallel.hxx"
 #include "vm.hxx"
@@ -23,36 +24,6 @@
 
 namespace goof2 {
 #if GOOF2_USE_SLJIT
-
-// Helpers reused from interpreter to build optimized instruction streams
-static int32_t fold(std::string_view code, size_t& i, char match) {
-    int32_t count = 1;
-    while (i < code.length() - 1 && code[i + 1] == match) {
-        ++i;
-        ++count;
-    }
-    return count;
-}
-
-static std::string processBalanced(std::string_view s, char no1, char no2) {
-    const auto total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
-    return std::string(std::abs(total), total > 0 ? no1 : no2);
-}
-
-template <typename Callback>
-static void regex_replace_inplace(std::string& str, const std::regex& re, Callback cb) {
-    std::string result;
-    auto begin = str.cbegin();
-    auto end = str.cend();
-    std::smatch match;
-    while (std::regex_search(begin, end, match, re)) {
-        result.append(begin, match[0].first);
-        result += cb(match);
-        begin = match[0].second;
-    }
-    result.append(begin, end);
-    str = std::move(result);
-}
 
 template <typename CellT>
 static int buildInstructions(std::string& code, bool optimize,
@@ -66,16 +37,16 @@ static int buildInstructions(std::string& code, bool optimize,
     if (optimize) {
         code = std::regex_replace(code, std::regex(R"([^+\-<>\.,\]\[])"), "");
 
-        regex_replace_inplace(code, std::regex(R"([+-]{2,})"), [&](const std::smatch& what) {
+        regexReplaceInplace(code, std::regex(R"([+-]{2,})"), [&](const std::smatch& what) {
             return processBalanced(what.str(), '+', '-');
         });
-        regex_replace_inplace(code, std::regex(R"([><]{2,})"), [&](const std::smatch& what) {
+        regexReplaceInplace(code, std::regex(R"([><]{2,})"), [&](const std::smatch& what) {
             return processBalanced(what.str(), '>', '<');
         });
 
         code = std::regex_replace(code, std::regex(R"([+-]*(?:\[[+-]+\])+)"), "C");
 
-        regex_replace_inplace(code, std::regex(R"(\[>+\]|\[<+\])"), [&](const std::smatch& what) {
+        regexReplaceInplace(code, std::regex(R"(\[>+\]|\[<+\])"), [&](const std::smatch& what) {
             const auto current = what.str();
             const auto count = std::count(current.begin(), current.end(), '>') -
                                std::count(current.begin(), current.end(), '<');
@@ -88,7 +59,7 @@ static int buildInstructions(std::string& code, bool optimize,
 
         code = std::regex_replace(code, std::regex(R"([+\-C]+,)"), ",");
 
-        regex_replace_inplace(
+        regexReplaceInplace(
             code, std::regex(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])"),
             [&](const std::smatch& what) {
                 int numOfCopies = 0;
