@@ -13,7 +13,8 @@
   ```
 
 ## Coding Style
-- Follow the existing C++ code style in this repository.
+- Follow the existing C++ code style in this repository. Some of the rules are described here.
+- The project uses C++23.
 - Use camelCase for identifiers, including variables, functions, and files.
 - Format C++ sources and headers with `clang-format` before committing.
 
