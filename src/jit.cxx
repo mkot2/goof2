@@ -263,13 +263,16 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     buildInstructions<CellT>(code, optimize, instructions, ops, profile);
 
     sljit_compiler* compiler = sljit_create_compiler(nullptr);
+    int ret = 0;
     if (compiler) {
-        std::vector<sljit_label*> labels(instructions.size());
-        std::vector<sljit_jump*> jumps(instructions.size(), nullptr);
+        sljit_emit_enter(compiler, 0, SLJIT_ARGS1(W, W), 2, 2, 0, 0, 0);
+        sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_S0, 0, SLJIT_R0, 0);
         if (profile && !profile->loopCounts.empty()) {
             sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_S1, 0, SLJIT_IMM,
                            (sljit_sw)profile->loopCounts.data());
         }
+        std::vector<sljit_label*> labels(instructions.size());
+        std::vector<sljit_jump*> jumps(instructions.size(), nullptr);
         for (size_t i = 0; i < instructions.size(); ++i) {
             labels[i] = sljit_emit_label(compiler);
             const instruction& inst = instructions[i];
@@ -360,7 +363,7 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     break;
                 }
                 case insType::END:
-                    sljit_emit_return_void(compiler);
+                    sljit_emit_return(compiler, SLJIT_MOV, SLJIT_S0, 0);
                     break;
             }
         }
@@ -374,12 +377,18 @@ int execute_jit(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             }
         });
         void* codeptr = sljit_generate_code(compiler, 0, nullptr);
+        using JitFunc = CellT* (*)(CellT*);
+        auto func = reinterpret_cast<JitFunc>(codeptr);
+        CellT* ptr = cells.data() + cellPtr;
+        CellT* endPtr = func(ptr);
+        cellPtr = static_cast<size_t>(endPtr - cells.data());
         sljit_free_code(codeptr, nullptr);
         sljit_free_compiler(compiler);
+    } else {
+        ret =
+            execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term, model, profile);
     }
 
-    int ret =
-        execute<CellT>(cells, cellPtr, code, optimize, eof, dynamicSize, term, model, profile);
     monitorHotLoops<CellT>(profile, code);
     return ret;
 }
