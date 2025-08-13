@@ -104,3 +104,15 @@ target_link_libraries(vm_model_selection_tests PRIVATE
 
 add_test(NAME vm_model_selection_tests COMMAND vm_model_selection_tests)
 set_tests_properties(vm_model_selection_tests PROPERTIES TIMEOUT 5)
+
+add_executable(vm_ml_opt_tests
+    testMlOpt.cxx
+)
+
+target_link_libraries(vm_ml_opt_tests PRIVATE
+    vm
+    Warnings
+)
+
+add_test(NAME vm_ml_opt_tests COMMAND vm_ml_opt_tests)
+set_tests_properties(vm_ml_opt_tests PROPERTIES TIMEOUT 5)
