@@ -8,7 +8,7 @@
 #include <string>
 
 namespace goof2 {
-// Global toggle enabled via the --ml-opt command-line flag
+// Global toggle enabled by default, can be disabled via --no-ml-opt
 extern bool mlOptimizerEnabled;
 // Apply model-based rewrites to the provided Brainfuck code
 void applyMlOptimizer(std::string& code);

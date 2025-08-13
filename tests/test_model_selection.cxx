@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -7,10 +8,18 @@
 
 #include "vm.hxx"
 
+static void setEnv(const char* key, const char* value) {
+#ifdef _WIN32
+    _putenv_s(key, value);
+#else
+    setenv(key, value, 1);
+#endif
+}
+
 [[maybe_unused]] static goof2::MemoryModel runProgram(const std::string& code) {
     const char* dataset = "mm_log.txt";
     std::remove(dataset);
-    setenv("GOOF2_MM_DATASET", dataset, 1);
+    setEnv("GOOF2_MM_DATASET", dataset);
     std::vector<uint8_t> cells(1, 0);
     size_t ptr = 0;
     std::string codeCopy = code;
@@ -24,7 +33,7 @@
 }
 
 int main() {
-    setenv("GOOF2_MM_MODEL", "../../tools/ml_memmodel/model.csv", 1);
+    setEnv("GOOF2_MM_MODEL", "../../tools/ml_memmodel/model.csv");
     assert(runProgram(">") == goof2::MemoryModel::Contiguous);
     assert(goof2::predictMemoryModel(70000, 70000) == goof2::MemoryModel::Fibonacci);
     return 0;
