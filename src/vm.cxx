@@ -7,6 +7,7 @@
 #include "vm.hxx"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -165,23 +166,29 @@ static inline unsigned LZCNT64(unsigned long long x) {
 }
 #endif
 
-template <unsigned Bytes>
-static inline uint32_t strideMask32(unsigned step, unsigned phase) {
-    if constexpr (Bytes == 1) {
-        if (step == 2) return 0x55555555u << phase;
-        if (step == 4) return 0x11111111u << phase;
-        if (step == 8) return 0x01010101u << phase;
-    }
-    uint32_t m = 0;
-    constexpr unsigned lanes = 32 / Bytes;
-    const uint32_t pattern = (uint32_t(1) << Bytes) - 1u;
-    for (unsigned i = 0; i < lanes; i++) {
-        if (((i + phase) % step) == 0) {
-            unsigned bit = i * Bytes;
-            m |= (pattern << bit);
+template <unsigned Bytes, unsigned Step>
+struct StrideMask32Table {
+    static constexpr std::array<uint32_t, Step> masks = []() {
+        std::array<uint32_t, Step> arr{};
+        constexpr unsigned lanes = 32 / Bytes;
+        const uint32_t pattern = (uint32_t(1) << Bytes) - 1u;
+        for (unsigned phase = 0; phase < Step; ++phase) {
+            uint32_t m = 0;
+            for (unsigned i = 0; i < lanes; ++i) {
+                if (((i + phase) % Step) == 0) {
+                    unsigned bit = i * Bytes;
+                    m |= (pattern << bit);
+                }
+            }
+            arr[phase] = m;
         }
-    }
-    return m;
+        return arr;
+    }();
+};
+
+template <unsigned Bytes, unsigned Step>
+static inline uint32_t strideMask32(unsigned phase) {
+    return StrideMask32Table<Bytes, Step>::masks[phase & (Step - 1u)];
 }
 
 template <unsigned Bytes>
@@ -373,7 +380,7 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
             else
                 m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
             m = compressMask32<Bytes>(m);
-            m &= (int)strideMask32<Bytes>(Step, phase);
+            m &= (int)strideMask32<Bytes, Step>(phase);
             if (m) {
                 unsigned idx = TZCNT32((unsigned)m);
                 return (size_t)((x - p) + idx / Bytes);
@@ -425,7 +432,7 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
             else
                 m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
             m = compressMask32<Bytes>(m);
-            m &= (int)strideMask32<Bytes>(Step, lane0);
+            m &= (int)strideMask32<Bytes, Step>(lane0);
             if (m) {
                 unsigned bit = 31u - (unsigned)LZCNT32((unsigned)m);
                 unsigned lane = bit / Bytes;
