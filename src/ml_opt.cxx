@@ -13,7 +13,7 @@
 #include <vector>
 
 namespace goof2 {
-bool mlOptimizerEnabled = false;
+bool mlOptimizerEnabled = true;
 
 static std::vector<std::pair<std::regex, std::string>> loadModel() {
     std::vector<std::pair<std::regex, std::string>> rules;
