@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.16)
 project(goof2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -81,12 +81,14 @@ if(NOT simde_POPULATED)
 endif()
 set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
+set(PCH_HEADER src/pch.hxx)
 set(VM_SOURCES
     src/vm.cxx
     include/vm.hxx
 )
 
 add_library(vm ${VM_SOURCES})
+target_precompile_headers(vm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${PCH_HEADER}>")
 target_include_directories(vm
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -109,11 +111,12 @@ if(GOOF2_ENABLE_REPL)
     )
 endif()
 
-set(PROJECT_SOURCES ${EXEC_SOURCES} ${VM_SOURCES})
+set(PROJECT_SOURCES ${EXEC_SOURCES} ${VM_SOURCES} ${PCH_HEADER})
 
 add_executable(goof2
     ${EXEC_SOURCES}
 )
+target_precompile_headers(goof2 REUSE_FROM vm)
 
 target_link_libraries(goof2 PRIVATE
     vm
