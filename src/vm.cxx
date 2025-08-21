@@ -54,11 +54,14 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     str = std::move(result);
 }
 
+enum class insType : uint8_t;
+
 struct instruction {
     const void* jump;
     int32_t data;
     int16_t auxData;
     int16_t offset;
+    insType op = insType{};
 };
 
 enum class insType : uint8_t {
@@ -546,22 +549,21 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         int16_t offset = 0;
         bool set = false;
         instructions.reserve(code.length());
-        std::vector<uint8_t> ops;
-        ops.reserve(code.length());
 
         auto emit = [&](insType op, instruction inst) {
+            inst.op = op;
             if (op == insType::CLR && !instructions.empty()) {
                 auto& last = instructions.back();
-                insType lastOp = static_cast<insType>(ops.back());
+                insType lastOp = last.op;
                 if (lastOp == insType::CLR) {
                     if (inst.offset == last.offset + 1) {
                         last.data = 2;
-                        ops.back() = static_cast<uint8_t>(insType::CLR_RNG);
+                        last.op = insType::CLR_RNG;
                         return;
                     } else if (inst.offset + 1 == last.offset) {
                         last.data = 2;
                         last.offset = inst.offset;
-                        ops.back() = static_cast<uint8_t>(insType::CLR_RNG);
+                        last.op = insType::CLR_RNG;
                         return;
                     }
                 } else if (lastOp == insType::CLR_RNG) {
@@ -577,7 +579,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             }
             if (!instructions.empty() && instructions.back().offset == inst.offset) {
                 auto& last = instructions.back();
-                insType lastOp = static_cast<insType>(ops.back());
+                insType lastOp = last.op;
                 bool lastIsWrite = lastOp == insType::ADD_SUB || lastOp == insType::SET ||
                                    lastOp == insType::CLR || lastOp == insType::CLR_RNG;
                 bool newIsWrite = op == insType::ADD_SUB || op == insType::SET ||
@@ -592,24 +594,19 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                             return;
                         } else if (lastOp == insType::CLR) {
                             instructions.pop_back();
-                            ops.pop_back();
                             instructions.push_back(instruction{
                                 nullptr, static_cast<int32_t>(static_cast<CellT>(inst.data)), 0,
-                                inst.offset});
-                            ops.push_back(static_cast<uint8_t>(insType::SET));
+                                inst.offset, insType::SET});
                             return;
                         }
                     } else {
                         instructions.pop_back();
-                        ops.pop_back();
                         instructions.push_back(inst);
-                        ops.push_back(static_cast<uint8_t>(op));
                         return;
                     }
                 }
             }
             instructions.push_back(inst);
-            ops.push_back(static_cast<uint8_t>(op));
         };
 
 #define MOVEOFFSET()                                                \
@@ -699,8 +696,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         if (!braceStack.empty()) return 2;
 
         instructions.shrink_to_fit();
-        for (size_t i = 0; i < instructions.size(); ++i) {
-            instructions[i].jump = jtable[ops[i]];
+        for (auto& inst : instructions) {
+            inst.jump = jtable[static_cast<size_t>(inst.op)];
         }
     }
 
