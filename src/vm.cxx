@@ -434,6 +434,18 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
     }
 }
 
+template <typename CellT>
+static inline void simdClear(CellT* start, size_t count) {
+    std::uint8_t* bytes = reinterpret_cast<std::uint8_t*>(start);
+    size_t byteCount = count * sizeof(CellT);
+    const simde__m256i zero = simde_mm256_setzero_si256();
+    size_t simdBytes = byteCount & ~static_cast<size_t>(31);
+    for (size_t i = 0; i < simdBytes; i += 32) {
+        simde_mm256_storeu_si256(reinterpret_cast<simde__m256i*>(bytes + i), zero);
+    }
+    std::memset(bytes + simdBytes, 0, byteCount - simdBytes);
+}
+
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile) {
@@ -989,14 +1001,7 @@ _CLR_RNG:
         }
     } else {
         CellT* start = cell + insp->offset;
-        size_t byteCount = static_cast<size_t>(insp->data) * sizeof(CellT);
-        std::uint8_t* bytes = reinterpret_cast<std::uint8_t*>(start);
-        const simde__m256i zero = simde_mm256_setzero_si256();
-        size_t simdBytes = byteCount & ~static_cast<size_t>(31);
-        for (size_t i = 0; i < simdBytes; i += 32) {
-            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i*>(bytes + i), zero);
-        }
-        std::memset(bytes + simdBytes, 0, byteCount - simdBytes);
+        simdClear<CellT>(start, static_cast<size_t>(insp->data));
     }
     LOOP();
 
@@ -1283,23 +1288,47 @@ _SCN_CLR_RGT: {
         }
     }
 
-    for (;;) {
-        if (*cell == 0) {
-            LOOP();
+    if (step == 1) {
+        for (;;) {
+            CellT* end = cells.data() + cells.size();
+            size_t off = simdScan0Fwd<CellT>(cell, end);
+            if (off == 0) {
+                LOOP();
+            }
+            simdClear<CellT>(cell, off);
+            cell += off;
+            if (cell < end) {
+                LOOP();
+            }
+            if constexpr (Dynamic) {
+                const ptrdiff_t rel = cell - cellBase;
+                ensure(rel, rel);
+            } else {
+                cell = end - 1;
+                cellPtr = cell - cellBase;
+                std::cerr << "cell pointer moved beyond end" << std::endl;
+                return -1;
+            }
         }
-        *cell = 0;
-        cell += step;
-        if (cell < cells.data() + cells.size()) {
-            continue;
-        }
-        if constexpr (Dynamic) {
-            const ptrdiff_t rel = cell - cellBase;
-            ensure(rel, rel);
-        } else {
-            cell = cells.data() + cells.size() - 1;
-            cellPtr = cell - cellBase;
-            std::cerr << "cell pointer moved beyond end" << std::endl;
-            return -1;
+    } else {
+        for (;;) {
+            if (*cell == 0) {
+                LOOP();
+            }
+            *cell = 0;
+            cell += step;
+            if (cell < cells.data() + cells.size()) {
+                continue;
+            }
+            if constexpr (Dynamic) {
+                const ptrdiff_t rel = cell - cellBase;
+                ensure(rel, rel);
+            } else {
+                cell = cells.data() + cells.size() - 1;
+                cellPtr = cell - cellBase;
+                std::cerr << "cell pointer moved beyond end" << std::endl;
+                return -1;
+            }
         }
     }
 }
