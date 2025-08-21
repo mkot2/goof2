@@ -15,7 +15,6 @@
 #include <string_view>
 #include <vector>
 
-#include "ml_opt.hxx"
 #include "vm.hxx"
 #ifdef GOOF2_ENABLE_REPL
 #include "cpp-terminal/color.hpp"
@@ -51,7 +50,6 @@ struct CmdArgs {
     std::size_t tapeSize = 30000;
     int cellWidth = 8;
     goof2::MemoryModel model = goof2::MemoryModel::Auto;
-    bool mlOpt = true;
 };
 
 CmdArgs parseArgs(int argc, char* argv[]) {
@@ -103,10 +101,6 @@ CmdArgs parseArgs(int argc, char* argv[]) {
             }
         } else if (arg == "--profile") {
             args.profile = true;
-        } else if (arg == "--ml-opt") {
-            args.mlOpt = true;
-        } else if (arg == "--no-ml-opt") {
-            args.mlOpt = false;
         } else if (arg == "-mm" && i + 1 < argc) {
             std::string mm = argv[++i];
             std::transform(mm.begin(), mm.end(), mm.begin(),
@@ -139,7 +133,6 @@ void printHelp(const char* prog) {
               << "  -ts <size>       Tape size in cells (default 30000)\n"
               << "  -cw <width>      Cell width in bits (8,16,32,64)\n"
               << "  --profile        Print execution profile\n"
-              << "  --no-ml-opt      Disable ML-based optimizer (enabled by default)\n"
               << "  -mm <model>      Memory model (auto, contiguous, fibonacci, paged, os)\n"
               << "  -h               Show this help message" << std::endl;
 }
@@ -151,7 +144,6 @@ int main(int argc, char* argv[]) {
     enable_vt_mode();
 #endif
     CmdArgs opts = parseArgs(argc, argv);
-    goof2::mlOptimizerEnabled = opts.mlOpt;
     std::string filename = opts.filename;
     std::string evalCode = opts.evalCode;
     const bool dumpMemoryFlag = opts.dumpMemory;
@@ -358,7 +350,6 @@ void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
 
 int main(int argc, char* argv[]) {
     CmdArgs opts = parseArgs(argc, argv);
-    goof2::mlOptimizerEnabled = opts.mlOpt;
 
     std::string filename = opts.filename;
     std::string evalCode = opts.evalCode;
