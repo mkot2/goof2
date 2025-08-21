@@ -34,8 +34,8 @@ inline int32_t fold(std::string_view code, size_t& i, char match) {
 }
 
 inline std::string processBalanced(std::string_view s, char no1, char no2) {
-    const auto total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
-    return std::string(std::abs(total), total > 0 ? no1 : no2);
+    const auto total = std::ranges::count(s, no1) - std::ranges::count(s, no2);
+    return std::string(std::abs(total), total ? no1 : no2);
 }
 
 template <typename Callback>
@@ -468,10 +468,6 @@ static inline void simdClear(CellT* start, size_t count) {
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile) {
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-#endif
     std::vector<instruction> instructions;
     {
         static void* jtable[] = {&&_ADD_SUB,     &&_SET,         &&_PTR_MOV, &&_JMP_ZER,
@@ -500,26 +496,20 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
             regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
                 const auto current = what.str();
-                const auto count = std::count(current.begin(), current.end(), '>') -
-                                   std::count(current.begin(), current.end(), '<');
+                const auto count =
+                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
                 scanloopMap.push_back(std::abs(count));
                 scanloopClrMap.push_back(true);
-                if (count > 0)
-                    return std::string("R");
-                else
-                    return std::string("L");
+                return count ? "R" : "L";
             });
 
             regexReplaceInplace(code, goof2::vmRegex::scanLoopRe, [&](const std::smatch& what) {
                 const auto current = what.str();
-                const auto count = std::count(current.begin(), current.end(), '>') -
-                                   std::count(current.begin(), current.end(), '<');
+                const auto count =
+                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
                 scanloopMap.push_back(std::abs(count));
                 scanloopClrMap.push_back(false);
-                if (count > 0)
-                    return std::string("R");
-                else
-                    return std::string("L");
+                return count ? "R" : "L";
             });
 
             code = std::regex_replace(code, goof2::vmRegex::commaTrimRe, ",");
@@ -530,9 +520,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 const std::string whole = what.str();
                 const std::string current = what[1].str() + what[2].str();
 
-                if (std::count(whole.begin(), whole.end(), '>') -
-                        std::count(whole.begin(), whole.end(), '<') ==
-                    0) {
+                if (std::ranges::count(whole, '>') - std::ranges::count(whole, '<') == 0) {
                     std::smatch whatL;
                     auto start = current.cbegin();
                     auto end = current.cend();
@@ -635,11 +623,11 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     break;
                 }
                 case '-': {
-                    const int64_t folded = -fold(code, i, '-');
+                    const int32_t folded = -fold(code, i, '-');
                     const insType op = set ? insType::SET : insType::ADD_SUB;
                     emit(op, instruction{
                                  nullptr,
-                                 set ? static_cast<int64_t>(static_cast<CellT>(folded)) : folded, 0,
+                                 set ? static_cast<int32_t>(static_cast<CellT>(folded)) : folded, 0,
                                  offset});
                     set = false;
                     break;
