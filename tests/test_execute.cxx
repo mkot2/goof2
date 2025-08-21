@@ -12,13 +12,14 @@
 template <typename CellT>
 static std::string run(std::string code, std::vector<CellT>& cells, size_t& cellPtr,
                        const std::string& input = "", int eof = 0, bool dynamicSize = true,
-                       int* retOut = nullptr) {
+                       int* retOut = nullptr, goof2::ProfileInfo* profile = nullptr) {
     std::istringstream in(input);
     std::ostringstream out;
     auto* cinbuf = std::cin.rdbuf(in.rdbuf());
     auto* coutbuf = std::cout.rdbuf(out.rdbuf());
     std::cin.clear();
-    int ret = goof2::execute<CellT>(cells, cellPtr, code, true, eof, dynamicSize, false);
+    int ret = goof2::execute<CellT>(cells, cellPtr, code, true, eof, dynamicSize, false,
+                                    goof2::MemoryModel::Auto, profile);
     if (retOut) *retOut = ret;
     std::cin.rdbuf(cinbuf);
     std::cout.rdbuf(coutbuf);
@@ -187,6 +188,19 @@ static void test_scan_clear() {
 }
 
 template <typename CellT>
+static void test_clr_range() {
+    std::vector<CellT> cells(3, 1);
+    size_t ptr = 0;
+    goof2::ProfileInfo profile;
+    run<CellT>("[-]>[-]>[-]", cells, ptr, "", 0, true, nullptr, &profile);
+    assert(cells[0] == 0);
+    assert(cells[1] == 0);
+    assert(cells[2] == 0);
+    assert(ptr == 2);
+    assert(profile.instructions == 2);
+}
+
+template <typename CellT>
 static void run_tests() {
     test_loops<CellT>();
     test_io<CellT>();
@@ -195,6 +209,7 @@ static void run_tests() {
     test_boundary_checks<CellT>();
     test_scan_stride<CellT>();
     test_scan_clear<CellT>();
+    test_clr_range<CellT>();
     test_mul_cpy<CellT>();
 }
 
