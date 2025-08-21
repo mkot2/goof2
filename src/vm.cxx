@@ -23,6 +23,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace goof2 {
+std::mutex ioMutex;
+}
+
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
     while (i < code.length() - 1 && code[i + 1] == match) {

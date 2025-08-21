@@ -84,14 +84,14 @@ if(NOT simde_POPULATED)
 endif()
 set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
-set(PCH_HEADER src/pch.hxx)
+set(PCH_HEADER include/pch.hxx)
 set(VM_SOURCES
     src/vm.cxx
     include/vm.hxx
 )
 
 add_library(vm ${VM_SOURCES})
-target_precompile_headers(vm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${PCH_HEADER}>")
+target_precompile_headers(vm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/${PCH_HEADER}>")
 target_include_directories(vm
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
