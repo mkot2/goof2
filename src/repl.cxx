@@ -8,6 +8,7 @@
 #include "repl.hxx"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <fstream>
 #include <sstream>
@@ -32,33 +33,22 @@ bool supportsColor() {
            Terminfo::getColorMode() != Terminfo::ColorMode::Unset;
 }
 
+constexpr auto bfColors = [] {
+    std::array<Term::Color::Name, 256> table{};
+    table.fill(Term::Color::Name::Default);
+    table['>'] = table['<'] = Term::Color::Name::Cyan;
+    table['+'] = table['-'] = Term::Color::Name::Yellow;
+    table['['] = table[']'] = Term::Color::Name::Magenta;
+    table['.'] = table[','] = Term::Color::Name::Green;
+    return table;
+}();
+
 void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, const std::string& code) {
     if (!supportsColor()) return;
     const std::size_t cols = scr.columns();
     for (std::size_t i = 0; i < code.size() && (x + i) <= cols; ++i) {
-        Term::Color::Name color;
-        bool token = true;
-        switch (code[i]) {
-            case '>':
-            case '<':
-                color = Term::Color::Name::Cyan;
-                break;
-            case '+':
-            case '-':
-                color = Term::Color::Name::Yellow;
-                break;
-            case '[':
-            case ']':
-                color = Term::Color::Name::Magenta;
-                break;
-            case '.':
-            case ',':
-                color = Term::Color::Name::Green;
-                break;
-            default:
-                token = false;
-        }
-        if (token) {
+        auto color = bfColors[static_cast<unsigned char>(code[i])];
+        if (color != Term::Color::Name::Default) {
             scr.set_fg(x + i, y, color);
         }
     }
