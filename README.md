@@ -42,11 +42,6 @@ cmake --build build --target coverage
 An HTML report will be generated in `build/coverage`. Open
 `build/coverage/index.html` in a browser to explore the coverage data.
 
-## Machine learning optimizer
-
-Goof2 can load additional rewrite rules learned from example programs. Enable
-them with `--ml-opt` and place the model file as documented in
-[docs/ml_optimizer.md](docs/ml_optimizer.md).
 ## Usage
 
 The VM can execute a Brainfuck program from a file using `-i <file>` or directly from

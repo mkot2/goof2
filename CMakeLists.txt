@@ -12,18 +12,6 @@ ProcessorCount(LTO_PARALLEL_JOBS)
 if(NOT LTO_PARALLEL_JOBS OR LTO_PARALLEL_JOBS EQUAL 0)
     set(LTO_PARALLEL_JOBS 1)
 endif()
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
-
-set(ML_MODEL_TXT ${CMAKE_CURRENT_SOURCE_DIR}/assets/ml_model.txt)
-set(ML_MODEL_HEADER ${CMAKE_BINARY_DIR}/generated/mlModel.hxx)
-add_custom_command(
-    OUTPUT ${ML_MODEL_HEADER}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/generated
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generateMlModelHeader.py ${ML_MODEL_TXT} ${ML_MODEL_HEADER}
-    DEPENDS ${ML_MODEL_TXT} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generateMlModelHeader.py
-    COMMENT "Generating ML model header"
-)
-add_custom_target(generate_ml_model DEPENDS ${ML_MODEL_HEADER})
 
 # Link the C++ runtime statically on Windows to avoid missing procedure
 # entry point errors when running the prebuilt executable.
@@ -96,20 +84,15 @@ set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 set(VM_SOURCES
     src/vm.cxx
     include/vm.hxx
-    src/ml_opt.cxx
-    include/ml_opt.hxx
-    ${ML_MODEL_HEADER}
 )
 
 add_library(vm ${VM_SOURCES})
-add_dependencies(vm generate_ml_model)
 target_include_directories(vm
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include/goof2>
     PRIVATE
         ${SIMDE_INCLUDE_DIR}
-        ${CMAKE_BINARY_DIR}/generated
 )
 target_link_libraries(vm PRIVATE $<BUILD_INTERFACE:Warnings>)
 target_compile_options(vm PRIVATE
