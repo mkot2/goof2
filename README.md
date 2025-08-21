@@ -53,11 +53,11 @@ printf 'A' | ./goof2 -e ',.'
 ./goof2 -e '+++' -nopt
 ```
 
-The VM supports selectable cell widths. Use the `--cw` option to choose 8-, 16- or 32-bit
+The VM supports selectable cell widths. Use the `--cw` option to choose 8-, 16-, 32- or 64-bit
 cells at startup:
 
 ```sh
-./goof2 --cw 16 program.bf
+./goof2 --cw 64 program.bf
 ```
 
 Add `--profile` to measure execution time and instruction count:
