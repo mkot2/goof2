@@ -194,35 +194,88 @@ static inline uint32_t strideMask32(unsigned phase) {
     return StrideMask32Table<Bytes, Step>::masks[phase & (Step - 1u)];
 }
 
+template <unsigned Bytes, unsigned Step>
+struct StrideMask16Table {
+    static constexpr std::array<uint16_t, Step> masks = []() {
+        std::array<uint16_t, Step> arr{};
+        constexpr unsigned lanes = 16 / Bytes;
+        const uint16_t pattern = (uint16_t(1) << Bytes) - uint16_t(1);
+        for (unsigned phase = 0; phase < Step; ++phase) {
+            uint16_t m = 0;
+            for (unsigned i = 0; i < lanes; ++i) {
+                if (((i + phase) % Step) == 0) {
+                    unsigned bit = i * Bytes;
+                    m |= static_cast<uint16_t>(pattern << bit);
+                }
+            }
+            arr[phase] = m;
+        }
+        return arr;
+    }();
+};
+
+template <unsigned Bytes, unsigned Step>
+struct StrideMask64Table {
+    static constexpr std::array<uint64_t, Step> masks = []() {
+        std::array<uint64_t, Step> arr{};
+        constexpr unsigned lanes = 64 / Bytes;
+        for (unsigned phase = 0; phase < Step; ++phase) {
+            uint64_t m = 0;
+            for (unsigned i = 0; i < lanes; ++i) {
+                if (((i + phase) % Step) == 0) {
+                    m |= (uint64_t(1) << i);
+                }
+            }
+            arr[phase] = m;
+        }
+        return arr;
+    }();
+};
+
 template <unsigned Bytes>
 static inline uint16_t strideMask16(unsigned step, unsigned phase) {
-    if constexpr (Bytes == 1) {
-        if (step == 2) return uint16_t(0x5555u << phase);
-        if (step == 4) return uint16_t(0x1111u << phase);
-        if (step == 8) return uint16_t(0x0101u << phase);
-    }
-    uint16_t m = 0;
-    constexpr unsigned lanes = 16 / Bytes;
-    const uint16_t pattern = (uint16_t(1) << Bytes) - uint16_t(1);
-    for (unsigned i = 0; i < lanes; i++) {
-        if (((i + phase) % step) == 0) {
-            unsigned bit = i * Bytes;
-            m |= static_cast<uint16_t>(pattern << bit);
+    switch (step) {
+        case 2:
+            return StrideMask16Table<Bytes, 2>::masks[phase & 1u];
+        case 4:
+            return StrideMask16Table<Bytes, 4>::masks[phase & 3u];
+        case 8:
+            return StrideMask16Table<Bytes, 8>::masks[phase & 7u];
+        default: {
+            uint16_t m = 0;
+            constexpr unsigned lanes = 16 / Bytes;
+            const uint16_t pattern = (uint16_t(1) << Bytes) - uint16_t(1);
+            for (unsigned i = 0; i < lanes; ++i) {
+                if (((i + phase) % step) == 0) {
+                    unsigned bit = i * Bytes;
+                    m |= static_cast<uint16_t>(pattern << bit);
+                }
+            }
+            return m;
         }
     }
-    return m;
 }
 
 template <unsigned Bytes>
 static inline uint64_t strideMask64(unsigned step, unsigned phase) {
-    uint64_t m = 0;
-    constexpr unsigned lanes = 64 / Bytes;
-    for (unsigned i = 0; i < lanes; i++) {
-        if (((i + phase) % step) == 0) {
-            m |= (uint64_t(1) << i);
+    switch (step) {
+        case 2:
+            return StrideMask64Table<Bytes, 2>::masks[phase & 1u];
+        case 4:
+            return StrideMask64Table<Bytes, 4>::masks[phase & 3u];
+        case 8:
+            return StrideMask64Table<Bytes, 8>::masks[phase & 7u];
+        default: {
+            uint64_t m = 0;
+            constexpr unsigned lanes = 64 / Bytes;
+            for (unsigned i = 0; i < lanes; ++i) {
+                if (((i + phase) % step) == 0) {
+                    m |= (uint64_t(1) << i);
+                }
+            }
+            return m;
         }
     }
-    return m;
 }
 
 template <unsigned Bytes>

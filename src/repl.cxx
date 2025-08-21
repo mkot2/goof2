@@ -8,6 +8,7 @@
 #include "repl.hxx"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <fstream>
 #include <sstream>
@@ -82,21 +83,9 @@ void appendInputLines(std::vector<std::string>& log, const std::string& input) {
     }
 }
 
-const char* modelName(goof2::MemoryModel m) {
-    switch (m) {
-        case goof2::MemoryModel::Contiguous:
-            return "contig";
-        case goof2::MemoryModel::Fibonacci:
-            return "fib";
-        case goof2::MemoryModel::Paged:
-            return "paged";
-        case goof2::MemoryModel::OSBacked:
-            return "os";
-        case goof2::MemoryModel::Auto:
-        default:
-            return "auto";
-    }
-}
+constexpr std::array<const char*, 5> table{"auto", "contig", "fib", "paged", "os"};
+
+const char* modelName(goof2::MemoryModel m) { return table[static_cast<size_t>(m)]; }
 
 enum class MenuState { None, TapeSize, EOFVal, CellWidth, Search };
 
