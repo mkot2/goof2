@@ -72,6 +72,7 @@ enum class insType : uint8_t {
     PUT_CHR,
     RAD_CHR,
     CLR,
+    CLR_RNG,
     MUL_CPY,
     SCN_RGT,
     SCN_LFT,
@@ -445,10 +446,10 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 #endif
     std::vector<instruction> instructions;
     {
-        static void* jtable[] = {&&_ADD_SUB,     &&_SET,     &&_PTR_MOV, &&_JMP_ZER,
-                                 &&_JMP_NOT_ZER, &&_PUT_CHR, &&_RAD_CHR, &&_CLR,
-                                 &&_MUL_CPY,     &&_SCN_RGT, &&_SCN_LFT, &&_SCN_CLR_RGT,
-                                 &&_SCN_CLR_LFT, &&_END};
+        static void* jtable[] = {&&_ADD_SUB,     &&_SET,         &&_PTR_MOV, &&_JMP_ZER,
+                                 &&_JMP_NOT_ZER, &&_PUT_CHR,     &&_RAD_CHR, &&_CLR,
+                                 &&_CLR_RNG,     &&_MUL_CPY,     &&_SCN_RGT, &&_SCN_LFT,
+                                 &&_SCN_CLR_RGT, &&_SCN_CLR_LFT, &&_END};
 
         int copyloopCounter = 0;
         std::vector<int> copyloopMap;
@@ -541,13 +542,38 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         ops.reserve(code.length());
 
         auto emit = [&](insType op, instruction inst) {
+            if (op == insType::CLR && !instructions.empty()) {
+                auto& last = instructions.back();
+                insType lastOp = static_cast<insType>(ops.back());
+                if (lastOp == insType::CLR) {
+                    if (inst.offset == last.offset + 1) {
+                        last.data = 2;
+                        ops.back() = static_cast<uint8_t>(insType::CLR_RNG);
+                        return;
+                    } else if (inst.offset + 1 == last.offset) {
+                        last.data = 2;
+                        last.offset = inst.offset;
+                        ops.back() = static_cast<uint8_t>(insType::CLR_RNG);
+                        return;
+                    }
+                } else if (lastOp == insType::CLR_RNG) {
+                    if (inst.offset == last.offset + last.data) {
+                        last.data++;
+                        return;
+                    } else if (inst.offset + 1 == last.offset) {
+                        last.offset = inst.offset;
+                        last.data++;
+                        return;
+                    }
+                }
+            }
             if (!instructions.empty() && instructions.back().offset == inst.offset) {
                 auto& last = instructions.back();
                 insType lastOp = static_cast<insType>(ops.back());
-                bool lastIsWrite =
-                    lastOp == insType::ADD_SUB || lastOp == insType::SET || lastOp == insType::CLR;
-                bool newIsWrite =
-                    op == insType::ADD_SUB || op == insType::SET || op == insType::CLR;
+                bool lastIsWrite = lastOp == insType::ADD_SUB || lastOp == insType::SET ||
+                                   lastOp == insType::CLR || lastOp == insType::CLR_RNG;
+                bool newIsWrite = op == insType::ADD_SUB || op == insType::SET ||
+                                  op == insType::CLR || op == insType::CLR_RNG;
                 if (lastIsWrite && newIsWrite) {
                     if (op == insType::ADD_SUB) {
                         if (lastOp == insType::ADD_SUB) {
@@ -945,6 +971,39 @@ _RAD_CHR:
 _CLR:
     if constexpr (Dynamic) EXPAND_IF_NEEDED()
     OFFCELL() = 0;
+    LOOP();
+
+_CLR_RNG:
+    if constexpr (Dynamic) {
+        if constexpr (!Sparse) {
+            if (insp->data > 0) {
+                ptrdiff_t maxOffset = insp->offset + insp->data - 1;
+                if (maxOffset > 0) {
+                    const ptrdiff_t currentCell = cell - cellBase;
+                    const ptrdiff_t neededIndex = currentCell + maxOffset;
+                    size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
+                    if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+                        ensure(currentCell, neededIndex);
+                    }
+                }
+            }
+        }
+    }
+    if constexpr (Sparse) {
+        for (int32_t i = 0; i < insp->data; ++i) {
+            cellRef(insp->offset + i) = 0;
+        }
+    } else {
+        CellT* start = cell + insp->offset;
+        size_t byteCount = static_cast<size_t>(insp->data) * sizeof(CellT);
+        std::uint8_t* bytes = reinterpret_cast<std::uint8_t*>(start);
+        const simde__m256i zero = simde_mm256_setzero_si256();
+        size_t simdBytes = byteCount & ~static_cast<size_t>(31);
+        for (size_t i = 0; i < simdBytes; i += 32) {
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i*>(bytes + i), zero);
+        }
+        std::memset(bytes + simdBytes, 0, byteCount - simdBytes);
+    }
     LOOP();
 
 _MUL_CPY:
