@@ -163,6 +163,30 @@ static void test_scan_stride() {
 }
 
 template <typename CellT>
+static void test_scan_clear() {
+    {
+        std::vector<CellT> cells(5, 0);
+        cells[0] = 1;
+        cells[2] = 1;
+        size_t ptr = 0;
+        run<CellT>("[->>]", cells, ptr);
+        assert(ptr == 4);
+        assert(cells[0] == 0);
+        assert(cells[2] == 0);
+    }
+    {
+        std::vector<CellT> cells(3, 0);
+        cells[2] = 1;
+        cells[1] = 1;
+        size_t ptr = 2;
+        run<CellT>("[<[-]]", cells, ptr);
+        assert(ptr == 1);
+        assert(cells[1] == 0);
+        assert(cells[2] == 1);
+    }
+}
+
+template <typename CellT>
 static void run_tests() {
     test_loops<CellT>();
     test_io<CellT>();
@@ -170,6 +194,7 @@ static void run_tests() {
     test_eof_behavior<CellT>();
     test_boundary_checks<CellT>();
     test_scan_stride<CellT>();
+    test_scan_clear<CellT>();
     test_mul_cpy<CellT>();
 }
 

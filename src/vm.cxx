@@ -75,6 +75,8 @@ enum class insType : uint8_t {
     MUL_CPY,
     SCN_RGT,
     SCN_LFT,
+    SCN_CLR_RGT,
+    SCN_CLR_LFT,
     END,
 };
 
@@ -445,13 +447,15 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     {
         static void* jtable[] = {&&_ADD_SUB,     &&_SET,     &&_PTR_MOV, &&_JMP_ZER,
                                  &&_JMP_NOT_ZER, &&_PUT_CHR, &&_RAD_CHR, &&_CLR,
-                                 &&_MUL_CPY,     &&_SCN_RGT, &&_SCN_LFT, &&_END};
+                                 &&_MUL_CPY,     &&_SCN_RGT, &&_SCN_LFT, &&_SCN_CLR_RGT,
+                                 &&_SCN_CLR_LFT, &&_END};
 
         int copyloopCounter = 0;
         std::vector<int> copyloopMap;
 
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
+        std::vector<bool> scanloopClrMap;
 
         if (optimize) {
             code = std::regex_replace(code, std::regex(R"([^+\-<>\.,\]\[])"), "");
@@ -468,11 +472,24 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             code = std::regex_replace(code, std::regex(R"([+-]*(?:\[[+-]+\])+)"), "C");
 
             goof2::regexReplaceInplace(
+                code, std::regex(R"(\[-[<>]+\]|\[[<>]\[-\]\])"), [&](const std::smatch& what) {
+                    const auto current = what.str();
+                    const auto count = std::count(current.begin(), current.end(), '>') -
+                                       std::count(current.begin(), current.end(), '<');
+                    scanloopMap.push_back(std::abs(count));
+                    scanloopClrMap.push_back(true);
+                    if (count > 0)
+                        return std::string("R");
+                    else
+                        return std::string("L");
+                });
+            goof2::regexReplaceInplace(
                 code, std::regex(R"(\[>+\]|\[<+\])"), [&](const std::smatch& what) {
                     const auto current = what.str();
                     const auto count = std::count(current.begin(), current.end(), '>') -
                                        std::count(current.begin(), current.end(), '<');
                     scanloopMap.push_back(std::abs(count));
+                    scanloopClrMap.push_back(false);
                     if (count > 0)
                         return std::string("R");
                     else
@@ -622,16 +639,22 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                          instruction{nullptr, copyloopMap[copyloopCounter++],
                                      static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
                     break;
-                case 'R':
+                case 'R': {
                     MOVEOFFSET();
-                    emit(insType::SCN_RGT,
-                         instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0});
+                    const auto step = scanloopMap[scanloopCounter];
+                    const bool clr = scanloopClrMap[scanloopCounter++];
+                    emit(clr ? insType::SCN_CLR_RGT : insType::SCN_RGT,
+                         instruction{nullptr, step, 0, 0});
                     break;
-                case 'L':
+                }
+                case 'L': {
                     MOVEOFFSET();
-                    emit(insType::SCN_LFT,
-                         instruction{nullptr, scanloopMap[scanloopCounter++], 0, 0});
+                    const auto step = scanloopMap[scanloopCounter];
+                    const bool clr = scanloopClrMap[scanloopCounter++];
+                    emit(clr ? insType::SCN_CLR_LFT : insType::SCN_LFT,
+                         instruction{nullptr, step, 0, 0});
                     break;
+                }
                 case 'S':
                     set = true;
                     break;
@@ -1187,6 +1210,73 @@ _SCN_LFT: {
             return -1;
         }
         LOOP();
+    }
+}
+
+_SCN_CLR_RGT: {
+    const unsigned step = static_cast<unsigned>(insp->data);
+    if constexpr (Sparse) {
+        while (sparseTape[sparseIndex] != 0) {
+            sparseTape[sparseIndex] = 0;
+            sparseIndex += step;
+        }
+        LOOP();
+    }
+
+    if constexpr (Dynamic) {
+        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size())) {
+            const ptrdiff_t rel = cell - cellBase;
+            ensure(rel, rel + 64);
+        }
+    }
+
+    for (;;) {
+        if (*cell == 0) {
+            LOOP();
+        }
+        *cell = 0;
+        cell += step;
+        if (cell < cells.data() + cells.size()) {
+            continue;
+        }
+        if constexpr (Dynamic) {
+            const ptrdiff_t rel = cell - cellBase;
+            ensure(rel, rel);
+        } else {
+            cell = cells.data() + cells.size() - 1;
+            cellPtr = cell - cellBase;
+            std::cerr << "cell pointer moved beyond end" << std::endl;
+            return -1;
+        }
+    }
+}
+
+_SCN_CLR_LFT: {
+    const unsigned step = static_cast<unsigned>(insp->data);
+    if constexpr (Sparse) {
+        while (sparseTape[sparseIndex] != 0) {
+            if (sparseIndex < step) {
+                cellPtr = 0;
+                std::cerr << "cell pointer moved before start" << std::endl;
+                return -1;
+            }
+            sparseIndex -= step;
+            sparseTape[sparseIndex] = 0;
+        }
+        LOOP();
+    }
+
+    for (;;) {
+        if (*cell == 0) {
+            LOOP();
+        }
+        if (cell - cellBase < static_cast<ptrdiff_t>(step)) {
+            cellPtr = 0;
+            std::cerr << "cell pointer moved before start" << std::endl;
+            return -1;
+        }
+        cell -= step;
+        *cell = 0;
     }
 }
 
