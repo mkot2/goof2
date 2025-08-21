@@ -81,15 +81,3 @@ target_compile_definitions(vm_cli_eval_tests PRIVATE
 add_test(NAME vm_cli_eval_tests COMMAND vm_cli_eval_tests)
 set_tests_properties(vm_cli_eval_tests PROPERTIES TIMEOUT 15)
 
-add_executable(vm_parallel_tests
-    test_parallel.cxx
-)
-
-target_link_libraries(vm_parallel_tests PRIVATE
-    vm
-    Warnings
-)
-
-add_test(NAME vm_parallel_tests COMMAND vm_parallel_tests)
-set_tests_properties(vm_parallel_tests PROPERTIES TIMEOUT 5)
-

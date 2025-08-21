@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -22,8 +23,38 @@
 #include <unordered_map>
 #include <vector>
 
-#include "bfShared.hxx"
-#include "parallel.hxx"
+namespace goof2 {
+
+inline int32_t fold(std::string_view code, size_t& i, char match) {
+    int32_t count = 1;
+    while (i < code.length() - 1 && code[i + 1] == match) {
+        ++i;
+        ++count;
+    }
+    return count;
+}
+
+inline std::string processBalanced(std::string_view s, char no1, char no2) {
+    const auto total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
+    return std::string(std::abs(total), total > 0 ? no1 : no2);
+}
+
+template <typename Callback>
+inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb) {
+    std::string result;
+    auto begin = str.cbegin();
+    auto end = str.cend();
+    std::smatch match;
+    while (std::regex_search(begin, end, match, re)) {
+        result.append(begin, match[0].first);
+        result += cb(match);
+        begin = match[0].second;
+    }
+    result.append(begin, end);
+    str = std::move(result);
+}
+
+}  // namespace goof2
 
 struct instruction {
     const void* jump;
@@ -612,8 +643,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         if (!braceStack.empty()) return 2;
 
         instructions.shrink_to_fit();
-        goof2::parallelFor(0, instructions.size(),
-                           [&](size_t i) { instructions[i].jump = jtable[ops[i]]; });
+        for (size_t i = 0; i < instructions.size(); ++i) {
+            instructions[i].jump = jtable[ops[i]];
+        }
     }
 
     auto insp = instructions.data();
@@ -623,9 +655,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     CellT* cell = cellBase + cellPtr;
     size_t osSize = cells.size();
     if constexpr (Sparse) {
-        goof2::parallelFor(0, cells.size(), [&](size_t i) {
+        for (size_t i = 0; i < cells.size(); ++i) {
             if (cells[i] != 0) sparseTape[i] = cells[i];
-        });
+        }
     }
     if constexpr (!Sparse) {
 #if GOOF2_HAS_OS_VM
