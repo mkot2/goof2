@@ -117,6 +117,21 @@ using goof2::MemoryModel;
 
 std::mutex goof2::ioMutex;
 
+namespace goof2::vmRegex {
+using namespace std::regex_constants;
+static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize);
+static const std::regex addSubSeqRe(R"([+-]{2,})", optimize);
+static const std::regex ptrSeqRe(R"([><]{2,})", optimize);
+static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize);
+static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize);
+static const std::regex scanLoopRe(R"(\[>+\]|\[<+\])", optimize);
+static const std::regex commaTrimRe(R"([+\-C]+,)", optimize);
+static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])",
+                                   optimize);
+static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
+static const std::regex copyLoopInnerRe(R"([<>]+[+-]+)", optimize);
+}  // namespace goof2::vmRegex
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -472,31 +487,30 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         std::vector<bool> scanloopClrMap;
 
         if (optimize) {
-            code = std::regex_replace(code, std::regex(R"([^+\-<>\.,\]\[])"), "");
+            code = std::regex_replace(code, goof2::vmRegex::nonInstructionRe, "");
 
-            regexReplaceInplace(code, std::regex(R"([+-]{2,})"), [&](const std::smatch& what) {
+            regexReplaceInplace(code, goof2::vmRegex::addSubSeqRe, [&](const std::smatch& what) {
                 return processBalanced(what.str(), '+', '-');
             });
-            regexReplaceInplace(code, std::regex(R"([><]{2,})"), [&](const std::smatch& what) {
+            regexReplaceInplace(code, goof2::vmRegex::ptrSeqRe, [&](const std::smatch& what) {
                 return processBalanced(what.str(), '>', '<');
             });
 
-            code = std::regex_replace(code, std::regex(R"([+-]*(?:\[[+-]+\])+)"), "C");
+            code = std::regex_replace(code, goof2::vmRegex::clearLoopRe, "C");
 
-            regexReplaceInplace(
-                code, std::regex(R"(\[-[<>]+\]|\[[<>]\[-\]\])"), [&](const std::smatch& what) {
-                    const auto current = what.str();
-                    const auto count = std::count(current.begin(), current.end(), '>') -
-                                       std::count(current.begin(), current.end(), '<');
-                    scanloopMap.push_back(std::abs(count));
-                    scanloopClrMap.push_back(true);
-                    if (count > 0)
-                        return std::string("R");
-                    else
-                        return std::string("L");
-                });
+            regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
+                const auto current = what.str();
+                const auto count = std::count(current.begin(), current.end(), '>') -
+                                   std::count(current.begin(), current.end(), '<');
+                scanloopMap.push_back(std::abs(count));
+                scanloopClrMap.push_back(true);
+                if (count > 0)
+                    return std::string("R");
+                else
+                    return std::string("L");
+            });
 
-            regexReplaceInplace(code, std::regex(R"(\[>+\]|\[<+\])"), [&](const std::smatch& what) {
+            regexReplaceInplace(code, goof2::vmRegex::scanLoopRe, [&](const std::smatch& what) {
                 const auto current = what.str();
                 const auto count = std::count(current.begin(), current.end(), '>') -
                                    std::count(current.begin(), current.end(), '<');
@@ -508,40 +522,37 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     return std::string("L");
             });
 
-            code = std::regex_replace(code, std::regex(R"([+\-C]+,)"), ",");
+            code = std::regex_replace(code, goof2::vmRegex::commaTrimRe, ",");
 
-            regexReplaceInplace(
-                code, std::regex(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])"),
-                [&](const std::smatch& what) {
-                    int numOfCopies = 0;
-                    int offset = 0;
-                    const std::string whole = what.str();
-                    const std::string current = what[1].str() + what[2].str();
+            regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
+                int numOfCopies = 0;
+                int offset = 0;
+                const std::string whole = what.str();
+                const std::string current = what[1].str() + what[2].str();
 
-                    if (std::count(whole.begin(), whole.end(), '>') -
-                            std::count(whole.begin(), whole.end(), '<') ==
-                        0) {
-                        std::smatch whatL;
-                        auto start = current.cbegin();
-                        auto end = current.cend();
-                        std::regex inner(R"([<>]+[+-]+)");
-                        while (std::regex_search(start, end, whatL, inner)) {
-                            offset += -std::count(whatL[0].first, whatL[0].second, '<') +
-                                      std::count(whatL[0].first, whatL[0].second, '>');
-                            copyloopMap.push_back(offset);
-                            copyloopMap.push_back(std::count(whatL[0].first, whatL[0].second, '+') -
-                                                  std::count(whatL[0].first, whatL[0].second, '-'));
-                            numOfCopies++;
-                            start = whatL[0].second;
-                        }
-                        return std::string(numOfCopies, 'P') + "C";
-                    } else {
-                        return whole;
+                if (std::count(whole.begin(), whole.end(), '>') -
+                        std::count(whole.begin(), whole.end(), '<') ==
+                    0) {
+                    std::smatch whatL;
+                    auto start = current.cbegin();
+                    auto end = current.cend();
+                    while (std::regex_search(start, end, whatL, goof2::vmRegex::copyLoopInnerRe)) {
+                        offset += -std::count(whatL[0].first, whatL[0].second, '<') +
+                                  std::count(whatL[0].first, whatL[0].second, '>');
+                        copyloopMap.push_back(offset);
+                        copyloopMap.push_back(std::count(whatL[0].first, whatL[0].second, '+') -
+                                              std::count(whatL[0].first, whatL[0].second, '-'));
+                        numOfCopies++;
+                        start = whatL[0].second;
                     }
-                });
+                    return std::string(numOfCopies, 'P') + "C";
+                } else {
+                    return whole;
+                }
+            });
 
             if constexpr (!Term)
-                code = std::regex_replace(code, std::regex(R"((?:^|([RL\]]))C*([\+\-]+))"),
+                code = std::regex_replace(code, goof2::vmRegex::leadingSetRe,
                                           "$1S$2");  // We can't really assume in term
         }
 
