@@ -518,6 +518,24 @@ static inline void simdClear(CellT* start, size_t count) {
     std::memset(bytes + simdBytes, 0, byteCount - simdBytes);
 }
 
+constexpr std::array<insType, 256> charToOpcode = [] {
+    std::array<insType, 256> table{};
+    table.fill(insType::END);
+    table[static_cast<unsigned char>('+')] = insType::ADD_SUB;
+    table[static_cast<unsigned char>('-')] = insType::ADD_SUB;
+    table[static_cast<unsigned char>('>')] = insType::PTR_MOV;
+    table[static_cast<unsigned char>('<')] = insType::PTR_MOV;
+    table[static_cast<unsigned char>('[')] = insType::JMP_ZER;
+    table[static_cast<unsigned char>(']')] = insType::JMP_NOT_ZER;
+    table[static_cast<unsigned char>('.')] = insType::PUT_CHR;
+    table[static_cast<unsigned char>(',')] = insType::RAD_CHR;
+    table[static_cast<unsigned char>('C')] = insType::CLR;
+    table[static_cast<unsigned char>('P')] = insType::MUL_CPY;
+    table[static_cast<unsigned char>('R')] = insType::SCN_RGT;
+    table[static_cast<unsigned char>('L')] = insType::SCN_LFT;
+    return table;
+}();
+
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile) {
@@ -680,35 +698,37 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     }
 
         for (size_t i = 0; i < code.length(); i++) {
-            switch (code[i]) {
-                case '+': {
-                    const insType op = set ? insType::SET : insType::ADD_SUB;
-                    emit(op, instruction{nullptr, fold(code, i, '+'), 0, offset});
-                    set = false;
-                    break;
-                }
-                case '-': {
-                    const int64_t folded = -fold(code, i, '-');
-                    const insType op = set ? insType::SET : insType::ADD_SUB;
-                    emit(op, instruction{
+            const unsigned char ch = static_cast<unsigned char>(code[i]);
+            const insType op = charToOpcode[ch];
+            switch (op) {
+                case insType::ADD_SUB: {
+                    if (code[i] == '+') {
+                        const insType actual = set ? insType::SET : insType::ADD_SUB;
+                        emit(actual, instruction{nullptr, fold(code, i, '+'), 0, offset});
+                    } else {
+                        const int64_t folded = -fold(code, i, '-');
+                        const insType actual = set ? insType::SET : insType::ADD_SUB;
+                        emit(actual,
+                             instruction{
                                  nullptr,
                                  set ? static_cast<int64_t>(static_cast<CellT>(folded)) : folded, 0,
                                  offset});
+                    }
                     set = false;
                     break;
                 }
-                case '>':
-                    offset += static_cast<int16_t>(fold(code, i, '>'));
+                case insType::PTR_MOV:
+                    if (code[i] == '>')
+                        offset += static_cast<int16_t>(fold(code, i, '>'));
+                    else
+                        offset -= static_cast<int16_t>(fold(code, i, '<'));
                     break;
-                case '<':
-                    offset -= static_cast<int16_t>(fold(code, i, '<'));
-                    break;
-                case '[':
+                case insType::JMP_ZER:
                     MOVEOFFSET();
                     braceStack.push_back(instructions.size());
                     emit(insType::JMP_ZER, instruction{nullptr, 0, 0, 0});
                     break;
-                case ']': {
+                case insType::JMP_NOT_ZER: {
                     if (!braceStack.size()) return 1;
 
                     MOVEOFFSET();
@@ -719,38 +739,32 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     emit(insType::JMP_NOT_ZER, instruction{nullptr, sizeminstart, 0, 0});
                     break;
                 }
-                case '.':
+                case insType::PUT_CHR:
                     emit(insType::PUT_CHR, instruction{nullptr, fold(code, i, '.'), 0, offset});
                     break;
-                case ',':
+                case insType::RAD_CHR:
                     emit(insType::RAD_CHR, instruction{nullptr, 0, 0, offset});
                     break;
-                case 'C':
+                case insType::CLR:
                     emit(insType::CLR, instruction{nullptr, 0, 0, offset});
                     break;
-                case 'P':
+                case insType::MUL_CPY:
                     emit(insType::MUL_CPY,
                          instruction{nullptr, copyloopMap[copyloopCounter++],
                                      static_cast<int16_t>(copyloopMap[copyloopCounter++]), offset});
                     break;
-                case 'R': {
+                case insType::SCN_RGT:
+                case insType::SCN_LFT: {
                     MOVEOFFSET();
                     const auto step = scanloopMap[scanloopCounter];
                     const bool clr = scanloopClrMap[scanloopCounter++];
-                    emit(clr ? insType::SCN_CLR_RGT : insType::SCN_RGT,
+                    emit(op == insType::SCN_RGT ? (clr ? insType::SCN_CLR_RGT : insType::SCN_RGT)
+                                                : (clr ? insType::SCN_CLR_LFT : insType::SCN_LFT),
                          instruction{nullptr, step, 0, 0});
                     break;
                 }
-                case 'L': {
-                    MOVEOFFSET();
-                    const auto step = scanloopMap[scanloopCounter];
-                    const bool clr = scanloopClrMap[scanloopCounter++];
-                    emit(clr ? insType::SCN_CLR_LFT : insType::SCN_LFT,
-                         instruction{nullptr, step, 0, 0});
-                    break;
-                }
-                case 'S':
-                    set = true;
+                default:
+                    if (code[i] == 'S') set = true;
                     break;
             }
         }
