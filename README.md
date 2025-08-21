@@ -5,7 +5,9 @@ An all-in-one Brainfuck development tool/VM
 
 ## Building
 
-This project uses CMake for builds. To compile:
+This project uses CMake for builds and requires a compiler that provides
+GCC/Clang-style builtins. It is tested with GCC, Clang, and clang-cl. To
+compile:
 
 ```sh
 cmake -S . -B build
@@ -17,7 +19,8 @@ The resulting executable will be located in the `build` directory.
 ### Windows
 
 The project can also be built on Windows using CMake with either the
-MSVC or MinGW toolchains:
+MinGW or Clang toolchains (for example, clang-cl). Pure MSVC builds are
+not supported:
 
 ```powershell
 cmake -S . -B build

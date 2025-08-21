@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. Use GCC, Clang, or clang-cl.")
+endif()
+
 include(FetchContent)
 include(ProcessorCount)
 ProcessorCount(LTO_PARALLEL_JOBS)
@@ -15,16 +19,16 @@ endif()
 
 # Link the C++ runtime statically on Windows to avoid missing procedure
 # entry point errors when running the prebuilt executable.
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-elseif(MINGW)
+if(MINGW)
     add_link_options(-static)
 endif()
 
 option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 option(GOOF2_ENABLE_REPL "Enable interactive REPL" ON)
 
-if(BUILD_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(BUILD_COVERAGE
+        AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
+        AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
 endif()
@@ -41,7 +45,6 @@ add_library(Warnings::Warnings ALIAS Warnings)
 
 target_compile_options(Warnings INTERFACE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra>
-    $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
 )
 
 # Disable building tests, examples, docs, and install rules for submodules
@@ -150,7 +153,8 @@ install(EXPORT goof2Targets
     DESTINATION lib/cmake/goof2
 )
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
+        AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     target_compile_options(goof2 PRIVATE
         $<$<CONFIG:Release>:-Ofast>
         $<$<CONFIG:Release>:-march=native>
@@ -166,6 +170,16 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         $<$<CONFIG:Release>:-flto=${LTO_PARALLEL_JOBS}>
         $<$<CONFIG:Release>:-Wl,--gc-sections>
         $<$<CONFIG:Release>:-s>
+    )
+    set_property(TARGET goof2 PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+        AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(goof2 PRIVATE
+        $<$<CONFIG:Release>:/O2>
+    )
+    target_link_options(goof2 PRIVATE
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
     )
     set_property(TARGET goof2 PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
