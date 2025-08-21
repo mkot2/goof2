@@ -40,7 +40,7 @@ add_library(Warnings INTERFACE)
 add_library(Warnings::Warnings ALIAS Warnings)
 
 target_compile_options(Warnings INTERFACE
-    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra>
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
 )
 

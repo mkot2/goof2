@@ -15,7 +15,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-#include <mutex>
 #include <ranges>
 #include <regex>
 #include <string>
@@ -34,7 +33,7 @@ inline int32_t fold(std::string_view code, size_t& i, char match) {
 }
 
 inline std::string processBalanced(std::string_view s, char no1, char no2) {
-    const auto total = std::count(s.begin(), s.end(), no1) - std::count(s.begin(), s.end(), no2);
+    const auto total = std::ranges::count(s, no1) - std::ranges::count(s, no2);
     return std::string(std::abs(total), total > 0 ? no1 : no2);
 }
 
@@ -54,16 +53,6 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     str = std::move(result);
 }
 
-enum class insType : uint8_t;
-
-struct instruction {
-    const void* jump;
-    int32_t data;
-    int16_t auxData;
-    int16_t offset;
-    insType op = insType{};
-};
-
 enum class insType : uint8_t {
     ADD_SUB,
     SET,
@@ -80,6 +69,14 @@ enum class insType : uint8_t {
     SCN_CLR_RGT,
     SCN_CLR_LFT,
     END,
+};
+
+struct instruction {
+    const void* jump;
+    int32_t data;
+    int16_t auxData;
+    int16_t offset;
+    insType op = insType{};
 };
 
 #if defined(_WIN32)
@@ -115,8 +112,6 @@ void (*os_free)(void*, size_t) = default_os_free;
 
 using goof2::MemoryModel;
 
-std::mutex goof2::ioMutex;
-
 namespace goof2::vmRegex {
 using namespace std::regex_constants;
 static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize);
@@ -132,42 +127,12 @@ static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
 static const std::regex copyLoopInnerRe(R"([<>]+[+-]+)", optimize);
 }  // namespace goof2::vmRegex
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-#endif
 #include "simde/x86/avx2.h"
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
-#if defined(__GNUC__) || defined(__clang__)
 #define TZCNT32(x) __builtin_ctz((unsigned)(x))
 #define LZCNT32(x) __builtin_clz((unsigned)(x))
 #define TZCNT64(x) __builtin_ctzll((unsigned long long)(x))
 #define LZCNT64(x) __builtin_clzll((unsigned long long)(x))
-#else
-static inline unsigned TZCNT32(unsigned x) {
-    unsigned i = 0;
-    while (((x >> i) & 1u) == 0u) ++i;
-    return i;
-}
-static inline unsigned LZCNT32(unsigned x) {
-    unsigned i = 0;
-    while (((x >> (31u - i)) & 1u) == 0u) ++i;
-    return i;
-}
-static inline unsigned TZCNT64(unsigned long long x) {
-    unsigned i = 0;
-    while (((x >> i) & 1ull) == 0ull) ++i;
-    return i;
-}
-static inline unsigned LZCNT64(unsigned long long x) {
-    unsigned i = 0;
-    while (((x >> (63u - i)) & 1ull) == 0ull) ++i;
-    return i;
-}
-#endif
 
 template <unsigned Bytes, unsigned Step>
 struct StrideMask32Table {
@@ -539,10 +504,6 @@ constexpr std::array<insType, 256> charToOpcode = [] {
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile) {
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-#endif
     std::vector<instruction> instructions;
     {
         static void* jtable[] = {&&_ADD_SUB,     &&_SET,         &&_PTR_MOV, &&_JMP_ZER,
@@ -571,8 +532,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
             regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
                 const auto current = what.str();
-                const auto count = std::count(current.begin(), current.end(), '>') -
-                                   std::count(current.begin(), current.end(), '<');
+                const auto count =
+                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
                 scanloopMap.push_back(std::abs(count));
                 scanloopClrMap.push_back(true);
                 if (count > 0)
@@ -583,8 +544,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
             regexReplaceInplace(code, goof2::vmRegex::scanLoopRe, [&](const std::smatch& what) {
                 const auto current = what.str();
-                const auto count = std::count(current.begin(), current.end(), '>') -
-                                   std::count(current.begin(), current.end(), '<');
+                const auto count =
+                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
                 scanloopMap.push_back(std::abs(count));
                 scanloopClrMap.push_back(false);
                 if (count > 0)
@@ -706,12 +667,12 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                         const insType actual = set ? insType::SET : insType::ADD_SUB;
                         emit(actual, instruction{nullptr, fold(code, i, '+'), 0, offset});
                     } else {
-                        const int64_t folded = -fold(code, i, '-');
+                        const int32_t folded = -fold(code, i, '-');
                         const insType actual = set ? insType::SET : insType::ADD_SUB;
                         emit(actual,
                              instruction{
                                  nullptr,
-                                 set ? static_cast<int64_t>(static_cast<CellT>(folded)) : folded, 0,
+                                 set ? static_cast<int32_t>(static_cast<CellT>(folded)) : folded, 0,
                                  offset});
                     }
                     set = false;
