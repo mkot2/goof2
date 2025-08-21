@@ -41,6 +41,7 @@ inline std::string processBalanced(std::string_view s, char no1, char no2) {
 template <typename Callback>
 inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb) {
     std::string result;
+    result.reserve(str.size());
     auto begin = str.cbegin();
     auto end = str.cend();
     std::smatch match;
