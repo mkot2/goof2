@@ -16,14 +16,13 @@
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <ranges>
 #include <regex>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
-
-namespace goof2 {
 
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
@@ -53,8 +52,6 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     result.append(begin, end);
     str = std::move(result);
 }
-
-}  // namespace goof2
 
 struct instruction {
     const void* jump;
@@ -460,18 +457,16 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         if (optimize) {
             code = std::regex_replace(code, std::regex(R"([^+\-<>\.,\]\[])"), "");
 
-            goof2::regexReplaceInplace(code, std::regex(R"([+-]{2,})"),
-                                       [&](const std::smatch& what) {
-                                           return goof2::processBalanced(what.str(), '+', '-');
-                                       });
-            goof2::regexReplaceInplace(code, std::regex(R"([><]{2,})"),
-                                       [&](const std::smatch& what) {
-                                           return goof2::processBalanced(what.str(), '>', '<');
-                                       });
+            regexReplaceInplace(code, std::regex(R"([+-]{2,})"), [&](const std::smatch& what) {
+                return processBalanced(what.str(), '+', '-');
+            });
+            regexReplaceInplace(code, std::regex(R"([><]{2,})"), [&](const std::smatch& what) {
+                return processBalanced(what.str(), '>', '<');
+            });
 
             code = std::regex_replace(code, std::regex(R"([+-]*(?:\[[+-]+\])+)"), "C");
 
-            goof2::regexReplaceInplace(
+            regexReplaceInplace(
                 code, std::regex(R"(\[-[<>]+\]|\[[<>]\[-\]\])"), [&](const std::smatch& what) {
                     const auto current = what.str();
                     const auto count = std::count(current.begin(), current.end(), '>') -
@@ -483,22 +478,22 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     else
                         return std::string("L");
                 });
-            goof2::regexReplaceInplace(
-                code, std::regex(R"(\[>+\]|\[<+\])"), [&](const std::smatch& what) {
-                    const auto current = what.str();
-                    const auto count = std::count(current.begin(), current.end(), '>') -
-                                       std::count(current.begin(), current.end(), '<');
-                    scanloopMap.push_back(std::abs(count));
-                    scanloopClrMap.push_back(false);
-                    if (count > 0)
-                        return std::string("R");
-                    else
-                        return std::string("L");
-                });
+
+            regexReplaceInplace(code, std::regex(R"(\[>+\]|\[<+\])"), [&](const std::smatch& what) {
+                const auto current = what.str();
+                const auto count = std::count(current.begin(), current.end(), '>') -
+                                   std::count(current.begin(), current.end(), '<');
+                scanloopMap.push_back(std::abs(count));
+                scanloopClrMap.push_back(false);
+                if (count > 0)
+                    return std::string("R");
+                else
+                    return std::string("L");
+            });
 
             code = std::regex_replace(code, std::regex(R"([+\-C]+,)"), ",");
 
-            goof2::regexReplaceInplace(
+            regexReplaceInplace(
                 code, std::regex(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])"),
                 [&](const std::smatch& what) {
                     int numOfCopies = 0;
@@ -588,25 +583,25 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             switch (code[i]) {
                 case '+': {
                     const insType op = set ? insType::SET : insType::ADD_SUB;
-                    emit(op, instruction{nullptr, goof2::fold(code, i, '+'), 0, offset});
+                    emit(op, instruction{nullptr, fold(code, i, '+'), 0, offset});
                     set = false;
                     break;
                 }
                 case '-': {
-                    const int32_t folded = -goof2::fold(code, i, '-');
+                    const int64_t folded = -fold(code, i, '-');
                     const insType op = set ? insType::SET : insType::ADD_SUB;
                     emit(op, instruction{
                                  nullptr,
-                                 set ? static_cast<int32_t>(static_cast<CellT>(folded)) : folded, 0,
+                                 set ? static_cast<int64_t>(static_cast<CellT>(folded)) : folded, 0,
                                  offset});
                     set = false;
                     break;
                 }
                 case '>':
-                    offset += static_cast<int16_t>(goof2::fold(code, i, '>'));
+                    offset += static_cast<int16_t>(fold(code, i, '>'));
                     break;
                 case '<':
-                    offset -= static_cast<int16_t>(goof2::fold(code, i, '<'));
+                    offset -= static_cast<int16_t>(fold(code, i, '<'));
                     break;
                 case '[':
                     MOVEOFFSET();
@@ -625,8 +620,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     break;
                 }
                 case '.':
-                    emit(insType::PUT_CHR,
-                         instruction{nullptr, goof2::fold(code, i, '.'), 0, offset});
+                    emit(insType::PUT_CHR, instruction{nullptr, fold(code, i, '.'), 0, offset});
                     break;
                 case ',':
                     emit(insType::RAD_CHR, instruction{nullptr, 0, 0, offset});
