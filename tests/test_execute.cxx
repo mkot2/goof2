@@ -201,6 +201,20 @@ static void test_clr_range() {
 }
 
 template <typename CellT>
+static void test_clr_then_set() {
+    std::vector<CellT> cells(2, 1);
+    size_t ptr = 0;
+    std::string code = ">[-]++";
+    goof2::ProfileInfo profile;
+    goof2::execute<CellT>(cells, ptr, code, true, 0, true, false, goof2::MemoryModel::Auto,
+                          &profile);
+    assert(code == ">S++");
+    assert(ptr == 1);
+    assert(cells[1] == static_cast<CellT>(2));
+    assert(profile.instructions == 2);
+}
+
+template <typename CellT>
 static void run_tests() {
     test_loops<CellT>();
     test_io<CellT>();
@@ -210,6 +224,7 @@ static void run_tests() {
     test_scan_stride<CellT>();
     test_scan_clear<CellT>();
     test_clr_range<CellT>();
+    test_clr_then_set<CellT>();
     test_mul_cpy<CellT>();
 }
 

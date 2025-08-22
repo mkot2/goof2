@@ -125,6 +125,7 @@ static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize);
 static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize);
 static const std::regex scanLoopRe(R"(\[>+\]|\[<+\])", optimize);
 static const std::regex commaTrimRe(R"([+\-C]+,)", optimize);
+static const std::regex clearThenSetRe(R"(C([+-]+))", optimize);
 static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])",
                                    optimize);
 static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
@@ -559,6 +560,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             });
 
             code = std::regex_replace(code, goof2::vmRegex::commaTrimRe, ",");
+            code = std::regex_replace(code, goof2::vmRegex::clearThenSetRe, "S$1");
 
             regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
                 int numOfCopies = 0;
