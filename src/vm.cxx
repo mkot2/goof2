@@ -564,7 +564,6 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             code = std::regex_replace(code, goof2::vmRegex::clearThenSetRe, "S$1");
 
             regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
-                int numOfCopies = 0;
                 int offset = 0;
                 const std::string whole = what.str();
                 const std::string current = what[1].str() + what[2].str();
@@ -575,16 +574,32 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     std::smatch whatL;
                     auto start = current.cbegin();
                     auto end = current.cend();
+                    std::unordered_map<int, int> deltaMap;
+                    std::vector<int> order;
                     while (std::regex_search(start, end, whatL, goof2::vmRegex::copyLoopInnerRe)) {
                         offset += -std::count(whatL[0].first, whatL[0].second, '<') +
                                   std::count(whatL[0].first, whatL[0].second, '>');
-                        copyloopMap.push_back(offset);
-                        copyloopMap.push_back(std::count(whatL[0].first, whatL[0].second, '+') -
-                                              std::count(whatL[0].first, whatL[0].second, '-'));
-                        numOfCopies++;
+                        int delta = std::count(whatL[0].first, whatL[0].second, '+') -
+                                    std::count(whatL[0].first, whatL[0].second, '-');
+                        if (deltaMap.insert({offset, delta}).second) {
+                            order.push_back(offset);
+                        } else {
+                            deltaMap[offset] += delta;
+                        }
                         start = whatL[0].second;
                     }
-                    return std::string(numOfCopies, 'P') + "C";
+                    // Check if every target's accumulated delta is zero.
+                    const bool allZero = std::ranges::all_of(
+                        deltaMap, [](const auto& it) { return it.second == 0; });
+                    if (!allZero) {
+                        for (const auto& off : order) {
+                            copyloopMap.push_back(off);
+                            copyloopMap.push_back(deltaMap[off]);
+                        }
+                        return std::string(order.size(), 'P') + "C";
+                    }
+                    // When all deltas are zero, drop the P instructions and only clear.
+                    return std::string("C");
                 } else {
                     return whole;
                 }
