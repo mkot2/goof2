@@ -130,6 +130,7 @@ static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-
                                    optimize);
 static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
 static const std::regex copyLoopInnerRe(R"([<>]+[+-]+)", optimize);
+static const std::regex clearSeqRe(R"(C{2,})", optimize);
 }  // namespace goof2::vmRegex
 
 #include "simde/x86/avx2.h"
@@ -592,6 +593,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             if constexpr (!Term)
                 code = std::regex_replace(code, goof2::vmRegex::leadingSetRe,
                                           "$1S$2");  // We can't really assume in term
+
+            code = std::regex_replace(code, goof2::vmRegex::clearSeqRe, "C");
         }
 
         std::vector<size_t> braceStack;
