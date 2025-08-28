@@ -5,6 +5,26 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_UNITY_BUILD ON)
+
+# Use a compiler cache if available to speed up rebuilds
+# Prefer sccache (great on Windows/macOS/Linux), then fall back to ccache/clcache
+find_program(SCCACHE_PROGRAM NAMES sccache)
+find_program(CCACHE_PROGRAM NAMES ccache)
+find_program(CLCACHE_PROGRAM NAMES clcache)
+if(SCCACHE_PROGRAM)
+    message(STATUS "Enabling sccache: ${SCCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
+elseif(CCACHE_PROGRAM)
+    message(STATUS "Enabling ccache: ${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+elseif(CLCACHE_PROGRAM)
+    message(STATUS "Enabling clcache: ${CLCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${CLCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CLCACHE_PROGRAM}")
+endif()
 
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. Use GCC, Clang, or clang-cl.")
@@ -25,6 +45,7 @@ endif()
 
 option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 option(GOOF2_ENABLE_REPL "Enable interactive REPL" ON)
+option(GOOF2_BUILD_TESTS "Build unit and fuzz tests" ON)
 
 if(BUILD_COVERAGE
         AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
@@ -38,6 +59,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "No build type specified. Defaulting to Release.")
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
+
+# Enable multi-processor compilation for MSVC/clang-cl to speed up builds
+if(MSVC OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
+    add_compile_options(/MP)
+endif()
+
+# Use pipes for GCC/Clang to reduce temp file I/O during compilation
+add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang>:-pipe>)
 
 # Stub warnings target required by cpp-terminal
 add_library(Warnings INTERFACE)
@@ -61,11 +90,13 @@ if(GOOF2_ENABLE_REPL)
     FetchContent_Declare(cpp-terminal
         GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
         GIT_TAG dfb5ddf47dca73ce3cb51e3b8a80f2485bb74dff
+        GIT_SHALLOW TRUE
     )
 endif()
 FetchContent_Declare(simde
     GIT_REPOSITORY https://github.com/simd-everywhere/simde
     GIT_TAG 7da3fb1d7f9ad859290f7141403036c3c90bf668
+    GIT_SHALLOW TRUE
 )
 
 if(GOOF2_ENABLE_REPL)
@@ -194,7 +225,9 @@ if(CLANG_FORMAT_EXE)
 endif()
 
 enable_testing()
-add_subdirectory(tests)
+if(GOOF2_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
 
 if(BUILD_COVERAGE)
     find_program(LCOV_EXE lcov)

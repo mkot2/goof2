@@ -23,9 +23,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace goof2 {
-std::mutex ioMutex;
-}
+
 
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
@@ -123,7 +121,7 @@ static const std::regex addSubSeqRe(R"([+-]{2,})", optimize);
 static const std::regex ptrSeqRe(R"([><]{2,})", optimize);
 static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize);
 static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize);
-static const std::regex scanLoopRe(R"(\[>+\]|\[<+\])", optimize);
+static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize);
 static const std::regex commaTrimRe(R"([+\-C]+,)", optimize);
 static const std::regex clearThenSetRe(R"(C([+-]+))", optimize);
 static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])",
@@ -544,6 +542,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 scanloopClrMap.push_back(true);
                 if (count > 0)
                     return std::string("R");
+                else if (count == 0)
+                    return current;
                 else
                     return std::string("L");
             });
@@ -998,7 +998,6 @@ _PUT_CHR:
         const char ch = static_cast<char>(OFFCELL());
         char buf[256];
         std::memset(buf, static_cast<int>(ch), sizeof(buf));
-        std::lock_guard<std::mutex> lock(goof2::ioMutex);
         while (count >= sizeof(buf)) {
             std::cout.write(buf, sizeof(buf));
             count -= sizeof(buf);
@@ -1013,10 +1012,7 @@ _PUT_CHR:
 _RAD_CHR:
     if constexpr (Dynamic) EXPAND_IF_NEEDED()
     int in;
-    {
-        std::lock_guard<std::mutex> lock(goof2::ioMutex);
-        in = std::cin.get();
-    }
+    in = std::cin.get();
     if (in == EOF) {
         switch (eof) {
             case 0:
@@ -1457,10 +1453,6 @@ _END: {
     cellPtr = finalIndex;
 }
     return 0;
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 }
 
 static bool shouldUseSparse(std::string_view code) {
