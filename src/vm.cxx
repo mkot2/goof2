@@ -485,7 +485,7 @@ constexpr std::array<insType, 256> charToOpcode = [] {
 
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile,
+                int eof, MemoryModel model, bool adaptive, size_t span, goof2::ProfileInfo* profile,
                 std::vector<instruction>* cached) {
     std::vector<instruction> localInstructions;
     auto* instructionsPtr = cached ? cached : &localInstructions;
@@ -614,6 +614,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         std::vector<size_t> braceInst(code.length());
         int16_t offset = 0;
         bool set = false;
+        ptrdiff_t compilePos = 0, compileMin = 0, compileMax = 0;
         instructions.reserve(code.length());
 
         auto emit = [&](insType op, instruction inst) {
@@ -701,12 +702,20 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     set = false;
                     break;
                 }
-                case insType::PTR_MOV:
-                    if (code[i] == '>')
-                        offset += static_cast<int16_t>(fold(code, i, '>'));
-                    else
-                        offset -= static_cast<int16_t>(fold(code, i, '<'));
+                case insType::PTR_MOV: {
+                    if (code[i] == '>') {
+                        int16_t amt = static_cast<int16_t>(fold(code, i, '>'));
+                        offset += amt;
+                        compilePos += amt;
+                    } else {
+                        int16_t amt = static_cast<int16_t>(fold(code, i, '<'));
+                        offset -= amt;
+                        compilePos -= amt;
+                    }
+                    if (compilePos > compileMax) compileMax = compilePos;
+                    if (compilePos < compileMin) compileMin = compilePos;
                     break;
+                }
                 case insType::JMP_ZER:
                     MOVEOFFSET();
                     braceInst[i] = instructions.size();
@@ -750,6 +759,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     break;
             }
         }
+        if (static_cast<size_t>(compileMax - compileMin + 1) > span)
+            span = static_cast<size_t>(compileMax - compileMin + 1);
         MOVEOFFSET();
         emit(insType::END, instruction{nullptr, 0, 0, 0});
 
@@ -811,6 +822,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
         if constexpr (Sparse) return;  // sparse tape allocates on demand
         size_t needed = static_cast<size_t>(neededIndex + 1);
+        if (adaptive && needed > span) span = needed;
         MemoryModel target = adaptive ? chooseModel(needed) : model;
         if (adaptive && target != model) {
             if (target == MemoryModel::OSBacked) {
@@ -958,7 +970,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             const ptrdiff_t currentCell = cell - cellBase;                               \
             const ptrdiff_t neededIndex = currentCell + insp->offset;                    \
             size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size()); \
-            if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {                      \
+            size_t needed = static_cast<size_t>(neededIndex + 1);                        \
+            if (needed > totalSize || (adaptive && needed > span)) {                     \
                 ensure(currentCell, neededIndex);                                        \
             }                                                                            \
         }                                                                                \
@@ -994,10 +1007,11 @@ _PTR_MOV: {
             std::cerr << "cell pointer moved before start" << std::endl;
             return -1;
         }
-        if (newIndex >= static_cast<ptrdiff_t>(cells.size())) {
+        size_t needed = static_cast<size_t>(newIndex + 1);
+        if (newIndex >= static_cast<ptrdiff_t>(cells.size()) || (adaptive && needed > span)) {
             if constexpr (Dynamic) {
                 ensure(currentCell, newIndex);
-            } else {
+            } else if (newIndex >= static_cast<ptrdiff_t>(cells.size())) {
                 cellPtr = currentCell;
                 std::cerr << "cell pointer moved beyond end" << std::endl;
                 return -1;
@@ -1070,7 +1084,8 @@ _CLR_RNG:
                     const ptrdiff_t currentCell = cell - cellBase;
                     const ptrdiff_t neededIndex = currentCell + maxOffset;
                     size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
-                    if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+                    size_t needed = static_cast<size_t>(neededIndex + 1);
+                    if (needed > totalSize || (adaptive && needed > span)) {
                         ensure(currentCell, neededIndex);
                     }
                 }
@@ -1097,7 +1112,8 @@ _MUL_CPY:
         const ptrdiff_t neededIndex =
             currentCell + insp->offset + insp->data;  // ensure target exists
         size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
-        if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+        size_t needed = static_cast<size_t>(neededIndex + 1);
+        if (needed > totalSize || (adaptive && needed > span)) {
             ensure(currentCell, neededIndex);
         }
     }
@@ -1120,7 +1136,8 @@ _MUL_CPY:
                 const ptrdiff_t neededIndex =
                     currentCell + base[lanes - 1].offset + base[lanes - 1].data;
                 size_t totalSize = (model == MemoryModel::OSBacked ? osSize : cells.size());
-                if (neededIndex >= static_cast<ptrdiff_t>(totalSize)) {
+                size_t needed = static_cast<size_t>(neededIndex + 1);
+                if (needed > totalSize || (adaptive && needed > span)) {
                     ensure(currentCell, neededIndex);
                 }
             }
@@ -1188,7 +1205,8 @@ _SCN_RGT: {
 
     // small pre-grow to cut resize churn during long scans
     if constexpr (Dynamic) {
-        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size())) {
+        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size()) ||
+               (adaptive && static_cast<size_t>((cell - cellBase) + 65) > span)) {
             const ptrdiff_t rel = cell - cellBase;
             ensure(rel, rel + 64);
         }
@@ -1230,6 +1248,11 @@ _SCN_RGT: {
         }
 
         cell += off;
+
+        if (adaptive && static_cast<size_t>((cell - cellBase) + 1) > span) {
+            const ptrdiff_t rel = cell - cellBase;
+            ensure(rel, rel);
+        }
 
         if (cell < end) {
             // found zero
@@ -1364,7 +1387,8 @@ _SCN_CLR_RGT: {
     }
 
     if constexpr (Dynamic) {
-        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size())) {
+        while ((cell - cellBase) + 64 >= static_cast<ptrdiff_t>(cells.size()) ||
+               (adaptive && static_cast<size_t>((cell - cellBase) + 65) > span)) {
             const ptrdiff_t rel = cell - cellBase;
             ensure(rel, rel + 64);
         }
@@ -1379,6 +1403,10 @@ _SCN_CLR_RGT: {
             }
             simdClear<CellT>(cell, off);
             cell += off;
+            if (adaptive && static_cast<size_t>((cell - cellBase) + 1) > span) {
+                const ptrdiff_t rel = cell - cellBase;
+                ensure(rel, rel);
+            }
             if (cell < end) {
                 LOOP();
             }
@@ -1399,6 +1427,10 @@ _SCN_CLR_RGT: {
             }
             *cell = 0;
             cell += step;
+            if (adaptive && static_cast<size_t>((cell - cellBase) + 1) > span) {
+                const ptrdiff_t rel = cell - cellBase;
+                ensure(rel, rel);
+            }
             if (cell < cells.data() + cells.size()) {
                 continue;
             }
@@ -1476,24 +1508,25 @@ _END: {
     return 0;
 }
 
-static bool shouldUseSparse(std::string_view code) {
+struct SpanInfo {
+    bool sparse;
+    size_t span;
+};
+
+static SpanInfo analyzeSpan(std::string_view code) {
     ptrdiff_t pos = 0, minPos = 0, maxPos = 0;
     for (char c : code) {
         if (c == '>') {
             ++pos;
-            if (pos > maxPos) {
-                maxPos = pos;
-                if ((maxPos - minPos) > 100000) return true;
-            }
+            if (pos > maxPos) maxPos = pos;
         } else if (c == '<') {
             --pos;
-            if (pos < minPos) {
-                minPos = pos;
-                if ((maxPos - minPos) > 100000) return true;
-            }
+            if (pos < minPos) minPos = pos;
         }
     }
-    return false;  // sparse memory not needed when span stays within 100k cells
+    size_t span = static_cast<size_t>(maxPos - minPos + 1);
+    bool sparse = span > 100000;
+    return {sparse, span};
 }
 
 template <typename CellT>
@@ -1530,44 +1563,56 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     }
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
+    SpanInfo spanInfo = analyzeSpan(code);
+    bool sparse = spanInfo.sparse;
+    size_t predictedSpan = std::max(spanInfo.span, cells.size());
+
     // Heuristic: small tapes use contiguous doubling, medium tapes use
     // Fibonacci growth to trade memory for fewer reallocations, large tapes
     // switch to fixed-size paged allocation, and very large tapes use
     // OS-backed virtual memory when available.
     if (dynamicSize && adaptive) {
 #if GOOF2_HAS_OS_VM
-        if (cells.size() > (1u << 28))
+        if (predictedSpan > (1u << 28))
             model = MemoryModel::OSBacked;
         else
 #endif
-            if (cells.size() > (1u << 24))
+            if (predictedSpan > (1u << 24))
             model = MemoryModel::Paged;
-        else if (cells.size() > (1u << 16))
+        else if (predictedSpan > (1u << 16))
             model = MemoryModel::Fibonacci;
     }
     if (dynamicSize) {
         if (sparse) {
             term ? ret = executeImpl<CellT, true, true, true>(cells, cellPtr, code, optimize, eof,
-                                                              model, adaptive, profile, cacheVec)
+                                                              model, adaptive, predictedSpan,
+                                                              profile, cacheVec)
                  : ret = executeImpl<CellT, true, false, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, profile, cacheVec);
+                                                               model, adaptive, predictedSpan,
+                                                               profile, cacheVec);
         } else {
             term ? ret = executeImpl<CellT, true, true, false>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, profile, cacheVec)
+                                                               model, adaptive, predictedSpan,
+                                                               profile, cacheVec)
                  : ret = executeImpl<CellT, true, false, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, profile, cacheVec);
+                                                                model, adaptive, predictedSpan,
+                                                                profile, cacheVec);
         }
     } else {
         if (sparse) {
             term ? ret = executeImpl<CellT, false, true, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, profile, cacheVec)
+                                                               model, adaptive, predictedSpan,
+                                                               profile, cacheVec)
                  : ret = executeImpl<CellT, false, false, true>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, profile, cacheVec);
+                                                                model, adaptive, predictedSpan,
+                                                                profile, cacheVec);
         } else {
             term ? ret = executeImpl<CellT, false, true, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, profile, cacheVec)
-                 : ret = executeImpl<CellT, false, false, false>(
-                       cells, cellPtr, code, optimize, eof, model, adaptive, profile, cacheVec);
+                                                                model, adaptive, predictedSpan,
+                                                                profile, cacheVec)
+                 : ret = executeImpl<CellT, false, false, false>(cells, cellPtr, code, optimize,
+                                                                 eof, model, adaptive,
+                                                                 predictedSpan, profile, cacheVec);
         }
     }
     if (profile)
