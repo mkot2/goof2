@@ -1545,9 +1545,10 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
         profile->instructions = 0;
         start = std::chrono::steady_clock::now();
     }
+    SpanInfo spanInfo = analyzeSpan(code);
+    bool sparse = spanInfo.sparse;
     size_t key = 0;
     std::vector<instruction>* cacheVec = nullptr;
-    bool sparse = false;
     if (cache) {
         if (cache->empty()) cache->reserve(kCacheExpectedEntries);
         key = std::hash<std::string>{}(code);
@@ -1563,8 +1564,7 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
             entry.source = code;
             entry.instructions.clear();
             entry.lastUsed = ++cacheCounter;
-            entry.sparse = shouldUseSparse(code);
-            sparse = entry.sparse;
+            entry.sparse = sparse;
             cacheVec = &entry.instructions;
             if (cache->size() > kCacheMaxEntries) {
                 auto victim = cache->begin();
@@ -1574,13 +1574,9 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
                 cache->erase(victim);
             }
         }
-    } else {
-        sparse = shouldUseSparse(code);
     }
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
-    SpanInfo spanInfo = analyzeSpan(code);
-    bool sparse = spanInfo.sparse;
     size_t predictedSpan = std::max(spanInfo.span, cells.size());
 
     // Heuristic: small tapes use contiguous doubling, medium tapes use
