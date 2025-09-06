@@ -156,7 +156,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
     for (std::size_t i = 0; i < inputLines; ++i) {
         std::size_t row = logHeight + 2 + i;
         scr.print_str(1, row, i == 0 ? "$ " : "  ");
-        scr.print_str(3, row, lines[i]);
+        scr.print_str(3, row, std::string(lines[i]));
         highlightBf(scr, 3, row, lines[i]);
     }
 
