@@ -23,8 +23,6 @@
 #include <unordered_map>
 #include <vector>
 
-
-
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
     while (i < code.length() - 1 && code[i + 1] == match) {
@@ -1473,8 +1471,11 @@ template <typename CellT>
 int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                    int eof, bool dynamicSize, bool term, MemoryModel model, ProfileInfo* profile) {
     int ret = 0;
-    auto start = std::chrono::steady_clock::now();
-    if (profile) profile->instructions = 0;
+    std::chrono::steady_clock::time_point start;
+    if (profile) {
+        profile->instructions = 0;
+        start = std::chrono::steady_clock::now();
+    }
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
     bool sparse = shouldUseSparse(code);
