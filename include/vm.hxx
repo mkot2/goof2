@@ -66,6 +66,7 @@ struct ProfileInfo {
 struct CacheEntry {
     std::string source;
     std::vector<instruction> instructions;
+    std::uint64_t lastUsed = 0;
     bool sparse = false;
 };
 

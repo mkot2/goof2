@@ -73,6 +73,12 @@ Select a memory allocation strategy with `-mm <contiguous|fibonacci|paged|os>`. 
 the VM chooses a model heuristically. In the interactive REPL, press `F8` to cycle through
 the available models.
 
+## Instruction cache
+
+Compiled programs are cached in memory to speed up repeated executions. The cache reserves
+space for roughly 64 entries up front and evicts the least recently used entry when the
+limit is exceeded.
+
 ## Memory models
 
 The virtual machine grows its cell tape using several strategies:
