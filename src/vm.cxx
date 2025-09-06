@@ -1451,8 +1451,11 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
                    int eof, bool dynamicSize, bool term, MemoryModel model, ProfileInfo* profile,
                    InstructionCache* cache) {
     int ret = 0;
-    auto start = std::chrono::steady_clock::now();
-    if (profile) profile->instructions = 0;
+    std::chrono::steady_clock::time_point start;
+    if (profile) {
+        profile->instructions = 0;
+        start = std::chrono::steady_clock::now();
+    }
     size_t key = 0;
     std::vector<instruction>* cacheVec = nullptr;
     if (cache) {
