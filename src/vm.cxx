@@ -1541,6 +1541,7 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     }
     size_t key = 0;
     std::vector<instruction>* cacheVec = nullptr;
+    bool sparse = false;
     if (cache) {
         key = std::hash<std::string>{}(code);
         key ^= static_cast<size_t>(optimize) << 1;
@@ -1548,18 +1549,24 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
         auto it = cache->find(key);
         if (it != cache->end() && it->second.source == code) {
             cacheVec = &it->second.instructions;
+            sparse = it->second.sparse;
         } else {
             auto& entry = (*cache)[key];
             entry.source = code;
             entry.instructions.clear();
+            entry.sparse = shouldUseSparse(code);
+            sparse = entry.sparse;
             cacheVec = &entry.instructions;
         }
+    } else {
+        sparse = shouldUseSparse(code);
     }
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
     SpanInfo spanInfo = analyzeSpan(code);
     bool sparse = spanInfo.sparse;
     size_t predictedSpan = std::max(spanInfo.span, cells.size());
+
     // Heuristic: small tapes use contiguous doubling, medium tapes use
     // Fibonacci growth to trade memory for fewer reallocations, large tapes
     // switch to fixed-size paged allocation, and very large tapes use
