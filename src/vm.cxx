@@ -23,8 +23,6 @@
 #include <unordered_map>
 #include <vector>
 
-
-
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
     while (i < code.length() - 1 && code[i + 1] == match) {
@@ -767,12 +765,16 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto insp = instructions.data();
     [[maybe_unused]] std::unordered_map<size_t, CellT> sparseTape;
     [[maybe_unused]] size_t sparseIndex = cellPtr;
+    [[maybe_unused]] size_t sparseMaxIndex = 0;
     CellT* cellBase = cells.data();
     CellT* cell = cellBase + cellPtr;
     size_t osSize = cells.size();
     if constexpr (Sparse) {
         for (size_t i = 0; i < cells.size(); ++i) {
-            if (cells[i] != 0) sparseTape[i] = cells[i];
+            if (cells[i] != 0) {
+                sparseTape[i] = cells[i];
+                if (i > sparseMaxIndex) sparseMaxIndex = i;
+            }
         }
     }
     if constexpr (!Sparse) {
@@ -915,10 +917,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     };
 
     auto cellRef = [&](ptrdiff_t off) -> CellT& {
-        if constexpr (Sparse)
-            return sparseTape[sparseIndex + off];
-        else
+        if constexpr (Sparse) {
+            size_t idx = sparseIndex + off;
+            auto& ref = sparseTape[idx];
+            if (idx > sparseMaxIndex) sparseMaxIndex = idx;
+            return ref;
+        } else {
             return *(cell + off);
+        }
     };
 
     goto * insp->jump;
@@ -1148,12 +1154,12 @@ _MUL_CPY:
 _SCN_RGT: {
     const unsigned step = static_cast<unsigned>(insp->data);
     if constexpr (Sparse) {
-        if (sparseTape[sparseIndex] == 0) {
+        if (cellRef(0) == 0) {
             LOOP();
         }
         do {
             sparseIndex += step;
-        } while (sparseTape[sparseIndex] != 0);
+        } while (cellRef(0) != 0);
         LOOP();
     }
 
@@ -1228,13 +1234,13 @@ _SCN_RGT: {
 _SCN_LFT: {
     const unsigned step = static_cast<unsigned>(insp->data);
     if constexpr (Sparse) {
-        if (sparseTape[sparseIndex] == 0) {
+        if (cellRef(0) == 0) {
             LOOP();
         }
-        while (sparseIndex >= step && sparseTape[sparseIndex] != 0) {
+        while (sparseIndex >= step && cellRef(0) != 0) {
             sparseIndex -= step;
         }
-        if (sparseIndex < step && sparseTape[sparseIndex] != 0) {
+        if (sparseIndex < step && cellRef(0) != 0) {
             cellPtr = 0;
             std::cerr << "cell pointer moved before start" << std::endl;
             return -1;
@@ -1331,8 +1337,8 @@ _SCN_LFT: {
 _SCN_CLR_RGT: {
     const unsigned step = static_cast<unsigned>(insp->data);
     if constexpr (Sparse) {
-        while (sparseTape[sparseIndex] != 0) {
-            sparseTape[sparseIndex] = 0;
+        while (cellRef(0) != 0) {
+            cellRef(0) = 0;
             sparseIndex += step;
         }
         LOOP();
@@ -1393,14 +1399,14 @@ _SCN_CLR_RGT: {
 _SCN_CLR_LFT: {
     const unsigned step = static_cast<unsigned>(insp->data);
     if constexpr (Sparse) {
-        while (sparseTape[sparseIndex] != 0) {
+        while (cellRef(0) != 0) {
             if (sparseIndex < step) {
                 cellPtr = 0;
                 std::cerr << "cell pointer moved before start" << std::endl;
                 return -1;
             }
             sparseIndex -= step;
-            sparseTape[sparseIndex] = 0;
+            cellRef(0) = 0;
         }
         LOOP();
     }
@@ -1423,11 +1429,7 @@ _END: {
     ptrdiff_t finalIndex;
     if constexpr (Sparse) {
         finalIndex = static_cast<ptrdiff_t>(sparseIndex);
-        size_t maxIndex = 0;
-        for (const auto& kv : sparseTape) {
-            if (kv.first > maxIndex) maxIndex = kv.first;
-        }
-        size_t needed = maxIndex + 1;
+        size_t needed = sparseMaxIndex + 1;
         if constexpr (Dynamic) {
             if (needed > cells.size()) cells.resize(needed, 0);
         } else {
