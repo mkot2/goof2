@@ -577,8 +577,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     std::smatch whatL;
                     auto start = current.cbegin();
                     auto end = current.cend();
-                    std::unordered_map<int, int> deltaMap;
-                    std::vector<int> order;
+                    std::pmr::unordered_map<int, int> deltaMap{&instructionPool};
+                    std::pmr::vector<int> order{&instructionPool};
                     while (std::regex_search(start, end, whatL, goof2::vmRegex::copyLoopInnerRe)) {
                         offset += -std::count(whatL[0].first, whatL[0].second, '<') +
                                   std::count(whatL[0].first, whatL[0].second, '>');
