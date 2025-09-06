@@ -12,6 +12,7 @@
 #include <cctype>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/cursor.hpp"
@@ -54,21 +55,33 @@ void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, const std::str
     }
 }
 void appendLines(std::vector<std::string>& log, const std::string& text) {
-    std::istringstream iss(text);
-    for (std::string line; std::getline(iss, line);) {
-        log.push_back(line);
+    std::string_view view{text};
+    std::size_t start = 0;
+    while (start < view.size()) {
+        std::size_t end = view.find('\n', start);
+        if (end == std::string_view::npos) {
+            log.emplace_back(view.substr(start));
+            break;
+        }
+        log.emplace_back(view.substr(start, end - start));
+        start = end + 1;
     }
 }
 
 void appendInputLines(std::vector<std::string>& log, const std::string& input) {
-    std::istringstream iss(input);
+    std::string_view view{input};
+    std::size_t start = 0;
     bool first = true;
-    for (std::string line; std::getline(iss, line);) {
-        log.push_back((first ? "$ " : "  ") + line);
+    while (start < view.size()) {
+        std::size_t end = view.find('\n', start);
+        if (end == std::string_view::npos) end = view.size();
+        log.emplace_back(first ? "$ " : "  ");
+        log.back().append(view.substr(start, end - start));
         first = false;
+        start = end + 1;
     }
     if (first) {
-        log.push_back("$ ");
+        log.emplace_back("$ ");
     }
 }
 
@@ -220,9 +233,19 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     auto refreshDump = [&]() {
         std::ostringstream oss;
         dumpMemory<CellT>(cells, cellPtr, oss);
-        std::istringstream iss(oss.str());
+        std::string dumpStr = oss.str();
+        std::string_view view{dumpStr};
         dump.clear();
-        for (std::string line; std::getline(iss, line);) dump.push_back(line);
+        std::size_t start = 0;
+        while (start < view.size()) {
+            std::size_t end = view.find('\n', start);
+            if (end == std::string_view::npos) {
+                dump.emplace_back(view.substr(start));
+                break;
+            }
+            dump.emplace_back(view.substr(start, end - start));
+            start = end + 1;
+        }
     };
     auto markChanges = [&]() {
         changed.clear();
