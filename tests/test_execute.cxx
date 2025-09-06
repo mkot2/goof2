@@ -12,14 +12,15 @@
 template <typename CellT>
 static std::string run(std::string code, std::vector<CellT>& cells, size_t& cellPtr,
                        const std::string& input = "", int eof = 0, bool dynamicSize = true,
-                       int* retOut = nullptr, goof2::ProfileInfo* profile = nullptr) {
-    std::istringstream in(input);
+                       int* retOut = nullptr, goof2::ProfileInfo* profile = nullptr,
+                       goof2::InstructionCache* cache = nullptr) {
+    std::stringbuf in(input);
     std::ostringstream out;
-    auto* cinbuf = std::cin.rdbuf(in.rdbuf());
+    auto* cinbuf = std::cin.rdbuf(&in);
     auto* coutbuf = std::cout.rdbuf(out.rdbuf());
     std::cin.clear();
     int ret = goof2::execute<CellT>(cells, cellPtr, code, true, eof, dynamicSize, false,
-                                    goof2::MemoryModel::Auto, profile);
+                                    goof2::MemoryModel::Auto, profile, cache);
     if (retOut) *retOut = ret;
     std::cin.rdbuf(cinbuf);
     std::cout.rdbuf(coutbuf);
@@ -230,6 +231,21 @@ static void test_unmatched_brackets() {
         run<CellT>("[", cells, ptr, "", 0, true, &ret);
         assert(ret == 2);
     }
+
+static void test_cache_reuse() {
+    goof2::InstructionCache cache;
+    std::vector<CellT> cells(1, 0);
+    size_t ptr = 0;
+    run<CellT>("+", cells, ptr, "", 0, true, nullptr, nullptr, &cache);
+    assert(cells[0] == static_cast<CellT>(1));
+    cells[0] = 0;
+    ptr = 0;
+    run<CellT>("+", cells, ptr, "", 0, true, nullptr, nullptr, &cache);
+    assert(cells[0] == static_cast<CellT>(1));
+    cells[0] = 0;
+    ptr = 0;
+    run<CellT>("++", cells, ptr, "", 0, true, nullptr, nullptr, &cache);
+    assert(cells[0] == static_cast<CellT>(2));
 }
 
 template <typename CellT>
@@ -245,6 +261,7 @@ static void run_tests() {
     test_clr_then_set<CellT>();
     test_unmatched_brackets<CellT>();
     test_mul_cpy<CellT>();
+    test_cache_reuse<CellT>();
 }
 
 int main() {

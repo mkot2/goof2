@@ -7,6 +7,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -27,12 +28,14 @@ static BigramModel loadModel(const std::string& path) {
     std::ifstream in(path);
     std::string line;
     while (std::getline(in, line)) {
-        std::istringstream ss(line);
-        std::string fromStr, toStr, probStr;
-        if (!std::getline(ss, fromStr, ',')) continue;
-        if (!std::getline(ss, toStr, ',')) continue;
-        if (!std::getline(ss, probStr)) continue;
-        double prob = std::stod(probStr);
+        std::size_t pos1 = line.find(',');
+        if (pos1 == std::string::npos) continue;
+        std::size_t pos2 = line.find(',', pos1 + 1);
+        if (pos2 == std::string::npos) continue;
+        std::string_view fromStr(line.data(), pos1);
+        std::string_view toStr(line.data() + pos1 + 1, pos2 - pos1 - 1);
+        std::string_view probStr(line.data() + pos2 + 1, line.size() - pos2 - 1);
+        double prob = std::stod(std::string(probStr));
         model[fromStr[0]].push_back({toStr[0], prob});
     }
     for (auto& kv : model) {
@@ -121,9 +124,9 @@ int main() {
         std::string input = randomInput(gen);
         std::vector<uint8_t> cells(32, 0);
         size_t ptr = 0;
-        std::istringstream in(input);
+        std::stringbuf in(input);
         std::ostringstream out;
-        auto* cinBuf = std::cin.rdbuf(in.rdbuf());
+        auto* cinBuf = std::cin.rdbuf(&in);
         auto* coutBuf = std::cout.rdbuf(out.rdbuf());
         std::cin.clear();
         std::atomic_bool done{false};

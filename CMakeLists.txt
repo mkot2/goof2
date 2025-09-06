@@ -89,13 +89,13 @@ endif()
 if(GOOF2_ENABLE_REPL)
     FetchContent_Declare(cpp-terminal
         GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
-        GIT_TAG dfb5ddf47dca73ce3cb51e3b8a80f2485bb74dff
+        GIT_TAG a5c1d2619c96ae609357a7109076000b05ad006c
         GIT_SHALLOW TRUE
     )
 endif()
 FetchContent_Declare(simde
     GIT_REPOSITORY https://github.com/simd-everywhere/simde
-    GIT_TAG 7da3fb1d7f9ad859290f7141403036c3c90bf668
+    GIT_TAG 9fc78ccbc7b8abee42d43ec99311c171ee8b1904
     GIT_SHALLOW TRUE
 )
 

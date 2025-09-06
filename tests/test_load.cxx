@@ -16,9 +16,9 @@ static std::string runFile(const std::string& path, std::vector<CellT>& cells, s
                            const std::string& input = "") {
     std::ifstream file(path);
     std::string code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    std::istringstream in(input);
+    std::stringbuf in(input);
     std::ostringstream out;
-    auto* cinbuf = std::cin.rdbuf(in.rdbuf());
+    auto* cinbuf = std::cin.rdbuf(&in);
     auto* coutbuf = std::cout.rdbuf(out.rdbuf());
     std::cin.clear();
     goof2::execute<CellT>(cells, cellPtr, code, true, 0, true, false);
