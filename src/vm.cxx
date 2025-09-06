@@ -4,6 +4,11 @@
     Published under the GNU AGPL-3.0-or-later license
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later
+
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
+
 #include "vm.hxx"
 
 #include <algorithm>
@@ -838,28 +843,50 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 #if GOOF2_HAS_OS_VM
                 size_t newSize = ((needed + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
                 if (newSize > osSize) {
-                    void* nptr = goof2::os_alloc(newSize * sizeof(CellT));
-#ifdef _WIN32
-                    bool ok = nptr != nullptr;
-#else
-                    bool ok = nptr != MAP_FAILED;
-#endif
-                    if (ok) {
-                        CellT* newMem = static_cast<CellT*>(nptr);
-                        std::memcpy(newMem, cellBase, osSize * sizeof(CellT));
-                        goof2::os_free(cellBase, osSize * sizeof(CellT));
-                        cellBase = newMem;
+                    bool resized = false;
+#if defined(__linux__)
+                    void* mptr = mremap(cellBase, osSize * sizeof(CellT), newSize * sizeof(CellT),
+                                        MREMAP_MAYMOVE);
+                    if (mptr != MAP_FAILED) {
+                        cellBase = static_cast<CellT*>(mptr);
                         osSize = newSize;
-                    } else {
-                        std::cerr << "warning: OS-backed allocation failed, falling back to "
-                                     "contiguous memory model"
-                                  << std::endl;
-                        cells.resize(newSize);
-                        std::memcpy(cells.data(), cellBase, osSize * sizeof(CellT));
-                        goof2::os_free(cellBase, osSize * sizeof(CellT));
-                        cellBase = cells.data();
-                        osSize = cells.size();
-                        model = MemoryModel::Contiguous;
+                        resized = true;
+                    }
+#elif defined(_WIN32)
+                    auto basePtr = reinterpret_cast<uint8_t*>(cellBase);
+                    void* mptr = VirtualAlloc(basePtr + osSize * sizeof(CellT),
+                                              (newSize - osSize) * sizeof(CellT), MEM_COMMIT,
+                                              PAGE_READWRITE);
+                    if (mptr) {
+                        osSize = newSize;
+                        resized = true;
+                    }
+#endif
+                    if (!resized) {
+                        void* nptr = goof2::os_alloc(newSize * sizeof(CellT));
+#ifdef _WIN32
+                        bool ok = nptr != nullptr;
+#else
+                        bool ok = nptr != MAP_FAILED;
+#endif
+                        if (ok) {
+                            CellT* newMem = static_cast<CellT*>(nptr);
+                            std::memcpy(newMem, cellBase, osSize * sizeof(CellT));
+                            goof2::os_free(cellBase, osSize * sizeof(CellT));
+                            cellBase = newMem;
+                            osSize = newSize;
+                        } else {
+                            std::cerr << "warning: OS-backed allocation failed, falling back to "
+                                         "contiguous "
+                                         "memory model"
+                                      << std::endl;
+                            cells.resize(newSize);
+                            std::memcpy(cells.data(), cellBase, osSize * sizeof(CellT));
+                            goof2::os_free(cellBase, osSize * sizeof(CellT));
+                            cellBase = cells.data();
+                            osSize = cells.size();
+                            model = MemoryModel::Contiguous;
+                        }
                     }
                 }
                 break;
