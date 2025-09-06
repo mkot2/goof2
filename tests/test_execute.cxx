@@ -216,6 +216,22 @@ static void test_clr_then_set() {
 }
 
 template <typename CellT>
+static void test_unmatched_brackets() {
+    {
+        std::vector<CellT> cells(1, 0);
+        size_t ptr = 0;
+        int ret = 0;
+        run<CellT>("]", cells, ptr, "", 0, true, &ret);
+        assert(ret == 1);
+    }
+    {
+        std::vector<CellT> cells(1, 0);
+        size_t ptr = 0;
+        int ret = 0;
+        run<CellT>("[", cells, ptr, "", 0, true, &ret);
+        assert(ret == 2);
+    }
+
 static void test_cache_reuse() {
     goof2::InstructionCache cache;
     std::vector<CellT> cells(1, 0);
@@ -243,6 +259,7 @@ static void run_tests() {
     test_scan_clear<CellT>();
     test_clr_range<CellT>();
     test_clr_then_set<CellT>();
+    test_unmatched_brackets<CellT>();
     test_mul_cpy<CellT>();
     test_cache_reuse<CellT>();
 }
