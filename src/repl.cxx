@@ -44,7 +44,7 @@ constexpr auto bfColors = [] {
     return table;
 }();
 
-void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, const std::string& code) {
+void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, std::string_view code) {
     if (!supportsColor()) return;
     const std::size_t cols = scr.columns();
     for (std::size_t i = 0; i < code.size() && (x + i) <= cols; ++i) {
@@ -108,11 +108,12 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
     const std::size_t maxInputLines = rows > 4 ? rows - 4 : 1;
     const std::size_t maxChars = wrap * maxInputLines;
     std::size_t startPos = input.size() > maxChars ? input.size() - maxChars : 0;
-    std::vector<std::string> lines;
+    std::vector<std::string_view> lines;
+    std::string_view inputView(input);
     for (std::size_t pos = startPos; pos < input.size(); pos += wrap) {
-        lines.push_back(input.substr(pos, wrap));
+        lines.push_back(inputView.substr(pos, wrap));
     }
-    if (lines.empty()) lines.push_back("");
+    if (lines.empty()) lines.push_back(std::string_view{});
 
     const std::size_t inputLines = lines.size();
     const std::size_t logHeight = rows > (4 + inputLines) ? rows - (4 + inputLines) : 0;
@@ -122,7 +123,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         const std::string& line = view[start + i];
         scr.print_str(1, 1 + i, line);
         if (tab == Tab::Log && (line.rfind("$ ", 0) == 0 || line.rfind("  ", 0) == 0)) {
-            highlightBf(scr, 3, 1 + i, line.substr(2));
+            highlightBf(scr, 3, 1 + i, std::string_view(line).substr(2));
         }
     }
 
@@ -153,9 +154,9 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
     scr.print_str(1, logHeight + 1, std::string(cols, '-'));
 
     for (std::size_t i = 0; i < inputLines; ++i) {
-        std::string promptLine = (i == 0 ? "$ " : "  ") + lines[i];
         std::size_t row = logHeight + 2 + i;
-        scr.print_str(1, row, promptLine);
+        scr.print_str(1, row, i == 0 ? "$ " : "  ");
+        scr.print_str(3, row, lines[i]);
         highlightBf(scr, 3, row, lines[i]);
     }
 
