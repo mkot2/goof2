@@ -23,8 +23,6 @@
 #include <unordered_map>
 #include <vector>
 
-
-
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
     while (i < code.length() - 1 && code[i + 1] == match) {
@@ -612,7 +610,24 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             code = std::regex_replace(code, goof2::vmRegex::clearSeqRe, "C");
         }
 
-        std::vector<size_t> braceStack;
+        std::vector<size_t> braceTable(code.length());
+        {
+            std::vector<size_t> stack;
+            for (size_t i = 0; i < code.length(); ++i) {
+                const char ch = code[i];
+                if (ch == '[') {
+                    stack.push_back(i);
+                } else if (ch == ']') {
+                    if (stack.empty()) return 1;
+                    const size_t start = stack.back();
+                    stack.pop_back();
+                    braceTable[start] = i;
+                    braceTable[i] = start;
+                }
+            }
+            if (!stack.empty()) return 2;
+        }
+        std::vector<size_t> braceInst(code.length());
         int16_t offset = 0;
         bool set = false;
         instructions.reserve(code.length());
@@ -710,17 +725,15 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     break;
                 case insType::JMP_ZER:
                     MOVEOFFSET();
-                    braceStack.push_back(instructions.size());
+                    braceInst[i] = instructions.size();
                     emit(insType::JMP_ZER, instruction{nullptr, 0, 0, 0});
                     break;
                 case insType::JMP_NOT_ZER: {
-                    if (!braceStack.size()) return 1;
-
                     MOVEOFFSET();
-                    const int start = braceStack.back();
-                    const int sizeminstart = instructions.size() - start;
-                    braceStack.pop_back();
-                    instructions[start].data = sizeminstart;
+                    const size_t startCode = braceTable[i];
+                    const size_t startInst = braceInst[startCode];
+                    const int sizeminstart = instructions.size() - startInst;
+                    instructions[startInst].data = sizeminstart;
                     emit(insType::JMP_NOT_ZER, instruction{nullptr, sizeminstart, 0, 0});
                     break;
                 }
@@ -755,8 +768,6 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         }
         MOVEOFFSET();
         emit(insType::END, instruction{nullptr, 0, 0, 0});
-
-        if (!braceStack.empty()) return 2;
 
         instructions.shrink_to_fit();
         for (auto& inst : instructions) {
