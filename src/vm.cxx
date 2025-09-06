@@ -1481,13 +1481,19 @@ static bool shouldUseSparse(std::string_view code) {
     for (char c : code) {
         if (c == '>') {
             ++pos;
-            if (pos > maxPos) maxPos = pos;
+            if (pos > maxPos) {
+                maxPos = pos;
+                if ((maxPos - minPos) > 100000) return true;
+            }
         } else if (c == '<') {
             --pos;
-            if (pos < minPos) minPos = pos;
+            if (pos < minPos) {
+                minPos = pos;
+                if ((maxPos - minPos) > 100000) return true;
+            }
         }
     }
-    return (maxPos - minPos) > 100000;  // trigger sparse when span exceeds 100k cells
+    return false;  // sparse memory not needed when span stays within 100k cells
 }
 
 template <typename CellT>
