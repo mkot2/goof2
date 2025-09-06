@@ -66,6 +66,7 @@ struct ProfileInfo {
 struct CacheEntry {
     std::string source;
     std::vector<instruction> instructions;
+    bool sparse = false;
 };
 
 using InstructionCache = std::unordered_map<size_t, CacheEntry>;
