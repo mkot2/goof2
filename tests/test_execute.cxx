@@ -231,7 +231,9 @@ static void test_unmatched_brackets() {
         run<CellT>("[", cells, ptr, "", 0, true, &ret);
         assert(ret == 2);
     }
+}
 
+template <typename CellT>
 static void test_cache_reuse() {
     goof2::InstructionCache cache;
     std::vector<CellT> cells(1, 0);

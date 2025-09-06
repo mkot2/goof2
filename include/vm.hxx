@@ -67,6 +67,7 @@ struct CacheEntry {
     std::string source;
     std::vector<instruction> instructions;
     std::uint64_t lastUsed = 0;
+    bool sparse = false;
 };
 
 using InstructionCache = std::unordered_map<size_t, CacheEntry>;
