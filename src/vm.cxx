@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <ranges>
 #include <regex>
@@ -22,8 +23,6 @@
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
-
-
 
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
@@ -54,32 +53,6 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     result.append(begin, end);
     str = std::move(result);
 }
-
-enum class insType : uint8_t {
-    ADD_SUB,
-    SET,
-    PTR_MOV,
-    JMP_ZER,
-    JMP_NOT_ZER,
-    PUT_CHR,
-    RAD_CHR,
-    CLR,
-    CLR_RNG,
-    MUL_CPY,
-    SCN_RGT,
-    SCN_LFT,
-    SCN_CLR_RGT,
-    SCN_CLR_LFT,
-    END,
-};
-
-struct instruction {
-    const void* jump;
-    int32_t data;
-    int16_t auxData;
-    int16_t offset;
-    insType op = insType{};
-};
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -507,9 +480,13 @@ constexpr std::array<insType, 256> charToOpcode = [] {
 
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile) {
-    std::vector<instruction> instructions;
-    {
+                int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile,
+                std::vector<instruction>* cached) {
+    std::vector<instruction> localInstructions;
+    auto* instructionsPtr = cached ? cached : &localInstructions;
+    bool hasInstructions = cached && !cached->empty();
+    auto& instructions = *instructionsPtr;
+    if (!hasInstructions) {
         static void* jtable[] = {&&_ADD_SUB,     &&_SET,         &&_PTR_MOV, &&_JMP_ZER,
                                  &&_JMP_NOT_ZER, &&_PUT_CHR,     &&_RAD_CHR, &&_CLR,
                                  &&_CLR_RNG,     &&_MUL_CPY,     &&_SCN_RGT, &&_SCN_LFT,
@@ -1471,10 +1448,27 @@ static bool shouldUseSparse(std::string_view code) {
 
 template <typename CellT>
 int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
-                   int eof, bool dynamicSize, bool term, MemoryModel model, ProfileInfo* profile) {
+                   int eof, bool dynamicSize, bool term, MemoryModel model, ProfileInfo* profile,
+                   InstructionCache* cache) {
     int ret = 0;
     auto start = std::chrono::steady_clock::now();
     if (profile) profile->instructions = 0;
+    size_t key = 0;
+    std::vector<instruction>* cacheVec = nullptr;
+    if (cache) {
+        key = std::hash<std::string>{}(code);
+        key ^= static_cast<size_t>(optimize) << 1;
+        key ^= static_cast<size_t>(term) << 2;
+        auto it = cache->find(key);
+        if (it != cache->end() && it->second.source == code) {
+            cacheVec = &it->second.instructions;
+        } else {
+            auto& entry = (*cache)[key];
+            entry.source = code;
+            entry.instructions.clear();
+            cacheVec = &entry.instructions;
+        }
+    }
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
     bool sparse = shouldUseSparse(code);
@@ -1496,26 +1490,26 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     if (dynamicSize) {
         if (sparse) {
             term ? ret = executeImpl<CellT, true, true, true>(cells, cellPtr, code, optimize, eof,
-                                                              model, adaptive, profile)
+                                                              model, adaptive, profile, cacheVec)
                  : ret = executeImpl<CellT, true, false, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, profile);
+                                                               model, adaptive, profile, cacheVec);
         } else {
             term ? ret = executeImpl<CellT, true, true, false>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, profile)
+                                                               model, adaptive, profile, cacheVec)
                  : ret = executeImpl<CellT, true, false, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, profile);
+                                                                model, adaptive, profile, cacheVec);
         }
     } else {
         if (sparse) {
             term ? ret = executeImpl<CellT, false, true, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, profile)
+                                                               model, adaptive, profile, cacheVec)
                  : ret = executeImpl<CellT, false, false, true>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, profile);
+                                                                model, adaptive, profile, cacheVec);
         } else {
             term ? ret = executeImpl<CellT, false, true, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, profile)
-                 : ret = executeImpl<CellT, false, false, false>(cells, cellPtr, code, optimize,
-                                                                 eof, model, adaptive, profile);
+                                                                model, adaptive, profile, cacheVec)
+                 : ret = executeImpl<CellT, false, false, false>(
+                       cells, cellPtr, code, optimize, eof, model, adaptive, profile, cacheVec);
         }
     }
     if (profile)
@@ -1525,10 +1519,14 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
 }
 
 template int goof2::execute<uint8_t>(std::vector<uint8_t>&, size_t&, std::string&, bool, int, bool,
-                                     bool, goof2::MemoryModel, goof2::ProfileInfo*);
+                                     bool, goof2::MemoryModel, goof2::ProfileInfo*,
+                                     goof2::InstructionCache*);
 template int goof2::execute<uint16_t>(std::vector<uint16_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*);
+                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*,
+                                      goof2::InstructionCache*);
 template int goof2::execute<uint32_t>(std::vector<uint32_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*);
+                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*,
+                                      goof2::InstructionCache*);
 template int goof2::execute<uint64_t>(std::vector<uint64_t>&, size_t&, std::string&, bool, int,
-                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*);
+                                      bool, bool, goof2::MemoryModel, goof2::ProfileInfo*,
+                                      goof2::InstructionCache*);
