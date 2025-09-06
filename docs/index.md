@@ -13,3 +13,8 @@ It includes third-party components under separate licenses:
 
 - cpp-terminal (MIT), see `../cpp-terminal/LICENSE`
 - simde (MIT and CC0), see `../simde/COPYING`
+
+## Platform Notes
+
+See [OS-backed memory expansion](os-memory.md) for details on how goof2 grows
+its tape on different platforms.

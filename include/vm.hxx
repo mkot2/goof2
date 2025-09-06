@@ -20,7 +20,34 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
+
+enum class insType : uint8_t {
+    ADD_SUB,
+    SET,
+    PTR_MOV,
+    JMP_ZER,
+    JMP_NOT_ZER,
+    PUT_CHR,
+    RAD_CHR,
+    CLR,
+    CLR_RNG,
+    MUL_CPY,
+    SCN_RGT,
+    SCN_LFT,
+    SCN_CLR_RGT,
+    SCN_CLR_LFT,
+    END,
+};
+
+struct instruction {
+    const void* jump;
+    int32_t data;
+    int16_t auxData;
+    int16_t offset;
+    insType op = insType{};
+};
 
 namespace goof2 {
 #if GOOF2_HAS_OS_VM
@@ -35,6 +62,13 @@ struct ProfileInfo {
     double seconds = 0.0;
     std::vector<std::uint64_t> loopCounts{};
 };
+
+struct CacheEntry {
+    std::string source;
+    std::vector<instruction> instructions;
+};
+
+using InstructionCache = std::unordered_map<size_t, CacheEntry>;
 
 /// @brief Only function you should use in your code. For now, it always prints to stdout.
 /// @tparam CellT Cell width type (uint8_t, uint16_t, uint32_t, uint64_t)
@@ -61,5 +95,6 @@ template <typename CellT>
 int execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code,
             bool optimize = GOOF2_OPTIMIZE, int eof = GOOF2_DEFAULT_EOF_BEHAVIOUR,
             bool dynamicSize = GOOF2_DYNAMIC_CELLS_SIZE, bool term = GOOF2_DEFAULT_SAVE_STATE,
-            MemoryModel model = MemoryModel::Auto, ProfileInfo* profile = nullptr);
+            MemoryModel model = MemoryModel::Auto, ProfileInfo* profile = nullptr,
+            InstructionCache* cache = nullptr);
 }  // namespace goof2
