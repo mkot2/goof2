@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <memory_resource>
 #include <ranges>
 #include <regex>
 #include <string>
@@ -22,8 +23,6 @@
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
-
-
 
 inline int32_t fold(std::string_view code, size_t& i, char match) {
     int32_t count = 1;
@@ -508,7 +507,11 @@ constexpr std::array<insType, 256> charToOpcode = [] {
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, goof2::ProfileInfo* profile) {
-    std::vector<instruction> instructions;
+    constexpr size_t initialInstructionCapacity = 4096;
+    std::array<std::byte, initialInstructionCapacity * sizeof(instruction)> instructionBuffer{};
+    std::pmr::monotonic_buffer_resource instructionPool(instructionBuffer.data(),
+                                                        instructionBuffer.size());
+    std::pmr::vector<instruction> instructions{&instructionPool};
     {
         static void* jtable[] = {&&_ADD_SUB,     &&_SET,         &&_PTR_MOV, &&_JMP_ZER,
                                  &&_JMP_NOT_ZER, &&_PUT_CHR,     &&_RAD_CHR, &&_CLR,
@@ -516,11 +519,11 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                  &&_SCN_CLR_RGT, &&_SCN_CLR_LFT, &&_END};
 
         int copyloopCounter = 0;
-        std::vector<int> copyloopMap;
+        std::pmr::vector<int> copyloopMap{&instructionPool};
 
         int scanloopCounter = 0;
-        std::vector<int> scanloopMap;
-        std::vector<bool> scanloopClrMap;
+        std::pmr::vector<int> scanloopMap{&instructionPool};
+        std::pmr::vector<bool> scanloopClrMap{&instructionPool};
 
         if (optimize) {
             code = std::regex_replace(code, goof2::vmRegex::nonInstructionRe, "");
@@ -612,7 +615,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             code = std::regex_replace(code, goof2::vmRegex::clearSeqRe, "C");
         }
 
-        std::vector<size_t> braceStack;
+        std::pmr::vector<size_t> braceStack{&instructionPool};
         int16_t offset = 0;
         bool set = false;
         instructions.reserve(code.length());
