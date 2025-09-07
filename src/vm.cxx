@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <future>
 #include <iostream>
 #include <ranges>
 #include <regex>
@@ -82,6 +83,29 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     }
     result.append(last, sv.end());
     str = std::move(result);
+}
+
+struct RegexReplacement {
+    size_t start;
+    size_t end;
+    std::string text;
+    std::function<void()> sideEffect;
+};
+
+template <typename Callback>
+std::vector<RegexReplacement> regexCollect(const std::string& str, const std::regex& re,
+                                           Callback cb) {
+    std::vector<RegexReplacement> reps;
+    std::string_view sv{str};
+    using Iterator = std::string_view::const_iterator;
+    for (std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end; it != end; ++it) {
+        const SvMatch& m = *it;
+        auto [rep, eff] = cb(m);
+        reps.push_back({static_cast<size_t>(m[0].first - sv.begin()),
+                        static_cast<size_t>(m[0].second - sv.begin()), std::move(rep),
+                        std::move(eff)});
+    }
+    return reps;
 }
 
 #if defined(_WIN32)
@@ -608,38 +632,53 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 code, goof2::vmRegex::clearLoopRe, [](const SvMatch&) { return std::string("C"); },
                 [](const SvMatch&) { return 1u; });
 
-            regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const SvMatch& what) {
-                std::string_view current{what[0].first, static_cast<size_t>(what.length())};
-                const auto count =
-                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
-                scanloopMap.push_back(std::abs(count));
-                scanloopClrMap.push_back(true);
-                if (count > 0)
-                    return std::string("R");
-                else if (count == 0)
-                    return std::string(current);
-                else
-                    return std::string("L");
+            const std::string baseCode = code;
+            auto scanFuture = std::async(std::launch::async, [baseCode, &scanloopMap,
+                                                              &scanloopClrMap]() {
+                std::vector<RegexReplacement> reps;
+                auto collect = [&](const std::regex& re, bool clrFlag) {
+                    auto vec = regexCollect(baseCode, re, [&](const SvMatch& what) {
+                        std::string_view current{what[0].first, static_cast<size_t>(what.length())};
+                        const auto count =
+                            std::ranges::count(current, '>') - std::ranges::count(current, '<');
+                        std::string rep;
+                        if (count > 0)
+                            rep = "R";
+                        else if (count == 0)
+                            rep = std::string(current);
+                        else
+                            rep = "L";
+                        return std::pair<std::string, std::function<void()>>{
+                            std::move(rep), [&, clrFlag, step = std::abs(count)]() {
+                                scanloopMap.push_back(step);
+                                scanloopClrMap.push_back(clrFlag);
+                            }};
+                    });
+                    reps.insert(reps.end(), vec.begin(), vec.end());
+                };
+                collect(goof2::vmRegex::scanLoopClrRe, true);
+                collect(goof2::vmRegex::scanLoopRe, false);
+                return reps;
             });
 
-            regexReplaceInplace(
-                code, goof2::vmRegex::scanLoopRe,
-                [&](const SvMatch& what) {
-                    std::string_view current{what[0].first, static_cast<size_t>(what.length())};
-                    const auto count =
-                        std::ranges::count(current, '>') - std::ranges::count(current, '<');
-                    scanloopMap.push_back(std::abs(count));
-                    scanloopClrMap.push_back(false);
-                    if (count > 0)
-                        return std::string("R");
-                    else
-                        return std::string("L");
-                },
-                [](const SvMatch&) { return 1u; });
+            auto commaFuture = std::async(std::launch::async, [baseCode]() {
+                return regexCollect(baseCode, goof2::vmRegex::commaTrimRe, [](const SvMatch&) {
+                    return std::pair<std::string, std::function<void()>>{std::string(","), {}};
+                });
+            });
 
-            regexReplaceInplace(
-                code, goof2::vmRegex::commaTrimRe, [](const SvMatch&) { return std::string(","); },
-                [](const SvMatch&) { return 1u; });
+            auto scanReps = scanFuture.get();
+            auto commaReps = commaFuture.get();
+            std::vector<RegexReplacement> allReps;
+            allReps.reserve(scanReps.size() + commaReps.size());
+            allReps.insert(allReps.end(), scanReps.begin(), scanReps.end());
+            allReps.insert(allReps.end(), commaReps.begin(), commaReps.end());
+            std::sort(allReps.begin(), allReps.end(),
+                      [](const auto& a, const auto& b) { return a.start > b.start; });
+            for (auto& r : allReps) {
+                code.replace(r.start, r.end - r.start, r.text);
+                if (r.sideEffect) r.sideEffect();
+            }
             regexReplaceInplace(
                 code, goof2::vmRegex::clearThenSetRe,
                 [](const SvMatch& what) {
