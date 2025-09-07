@@ -34,6 +34,8 @@
 #include <utility>
 #include <vector>
 
+#include "threadPool.hxx"
+
 using SvMatch = std::match_results<std::string_view::const_iterator>;
 
 namespace {
@@ -639,6 +641,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
+            static goof2::ThreadPool pool;
             regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
                                 [](const SvMatch&) { return std::string{}; });
             regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const SvMatch& what) {
@@ -652,8 +655,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                 [](const SvMatch&) { return std::string("C"); });
 
             const std::string baseCode = code;
-            auto scanFuture = std::async(std::launch::async, [baseCode, &scanloopMap,
-                                                              &scanloopClrMap]() {
+            auto scanFuture = pool.submit([baseCode, &scanloopMap, &scanloopClrMap]() {
                 std::vector<RegexReplacement> reps;
                 auto collect = [&](const std::regex& re, bool clrFlag) {
                     auto vec = regexCollect(baseCode, re, [&](const SvMatch& what) {
@@ -682,14 +684,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 return reps;
             });
 
-            auto commaFuture = std::async(std::launch::async, [baseCode]() {
+            auto commaFuture = pool.submit([baseCode]() {
                 return regexCollect(baseCode, goof2::vmRegex::commaTrimRe, [](const SvMatch&) {
                     return std::pair<std::string, std::function<void()>>{std::string(","), {}};
                 });
             });
 
             // Compute copy-loop replacements in parallel and aggregate with others.
-            auto copyFuture = std::async(std::launch::async, [baseCode, &copyloopMap]() {
+            auto copyFuture = pool.submit([baseCode, &copyloopMap]() {
                 return regexCollect(baseCode, goof2::vmRegex::copyLoopRe, [&](const SvMatch& what) {
                     int offset = 0;
                     std::string_view whole{what[0].first, static_cast<size_t>(what.length())};
