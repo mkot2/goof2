@@ -66,18 +66,20 @@ if(enableFuzz)
     set_tests_properties(vm_execute_fuzz PROPERTIES TIMEOUT 2 LABELS fuzz)
 endif()
 
-add_executable(vm_cli_eval_tests
-    test_cli_eval.cxx
-)
+if(NOT GOOF2_ENABLE_REPL)
+    add_executable(vm_cli_eval_tests
+        test_cli_eval.cxx
+    )
 
-target_link_libraries(vm_cli_eval_tests PRIVATE
-    Warnings
-)
+    target_link_libraries(vm_cli_eval_tests PRIVATE
+        Warnings
+    )
 
-target_compile_definitions(vm_cli_eval_tests PRIVATE
-    GOOF2_EXE_PATH="$<TARGET_FILE:goof2>"
-)
+    target_compile_definitions(vm_cli_eval_tests PRIVATE
+        GOOF2_EXE_PATH="$<TARGET_FILE:goof2>"
+    )
 
-add_test(NAME vm_cli_eval_tests COMMAND vm_cli_eval_tests)
-set_tests_properties(vm_cli_eval_tests PROPERTIES TIMEOUT 15)
+    add_test(NAME vm_cli_eval_tests COMMAND vm_cli_eval_tests)
+    set_tests_properties(vm_cli_eval_tests PROPERTIES TIMEOUT 15)
+endif()
 
