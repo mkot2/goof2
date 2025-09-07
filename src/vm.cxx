@@ -101,8 +101,7 @@ using goof2::MemoryModel;
 namespace goof2::vmRegex {
 using namespace std::regex_constants;
 static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize);
-static const std::regex addSubSeqRe(R"([+-]{2,})", optimize);
-static const std::regex ptrSeqRe(R"([><]{2,})", optimize);
+static const std::regex balanceSeqRe(R"([+-]{2,}|[><]{2,})", optimize);
 static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize);
 static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize);
 static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize);
@@ -575,12 +574,10 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         if (optimize) {
             regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
                                 [](const std::smatch&) { return std::string{}; });
-
-            regexReplaceInplace(code, goof2::vmRegex::addSubSeqRe, [&](const std::smatch& what) {
-                return processBalanced(what.str(), '+', '-');
-            });
-            regexReplaceInplace(code, goof2::vmRegex::ptrSeqRe, [&](const std::smatch& what) {
-                return processBalanced(what.str(), '>', '<');
+            regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const std::smatch& what) {
+                const char first = what.str()[0];
+                return (first == '+' || first == '-') ? processBalanced(what.str(), '+', '-')
+                                                      : processBalanced(what.str(), '>', '<');
             });
 
             regexReplaceInplace(code, goof2::vmRegex::clearLoopRe,
