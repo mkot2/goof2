@@ -1,9 +1,9 @@
 # AGENTS Instructions
 
 ## Build & Test
-- Build the project with CMake:
+- Build the project with CMake (Ninja generator):
   ```sh
-  cmake -S . -B build
+  cmake -S . -B build -G Ninja
   cmake --build build
   ```
   The resulting executable will be located in the `build` directory.

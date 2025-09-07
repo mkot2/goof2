@@ -10,7 +10,7 @@ GCC/Clang-style builtins. It is tested with GCC, Clang, and clang-cl. To
 compile:
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -G Ninja
 cmake --build build
 ```
 
@@ -23,7 +23,7 @@ MinGW or Clang toolchains (for example, clang-cl). Pure MSVC builds are
 not supported:
 
 ```powershell
-cmake -S . -B build
+cmake -S . -B build -G Ninja
 cmake --build build --config Release
 ```
 
@@ -38,7 +38,7 @@ Builds can optionally collect code coverage information using `gcov` and
 project with coverage enabled:
 
 ```sh
-cmake -S . -B build -DBUILD_COVERAGE=ON
+cmake -S . -B build -G Ninja -DBUILD_COVERAGE=ON
 cmake --build build --target coverage
 ```
 
@@ -52,7 +52,7 @@ test suite under Valgrind to detect memory leaks and invalid memory use:
 
 ```sh
 sudo apt-get install -y valgrind   # Debian/Ubuntu
-cmake -S . -B build
+cmake -S . -B build -G Ninja
 cmake --build build
 cmake --build build --target memcheck
 ```
