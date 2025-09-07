@@ -121,7 +121,7 @@ namespace goof2::vmRegex {
 using namespace std::regex_constants;
 static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize | nosubs);
 static const std::regex balanceSeqRe(R"([+-]{2,}|[><]{2,})", optimize | nosubs);
-static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize | nosubs);
+static const std::regex clearLoopRe(R"([+-]*\[[+-]+\](?:\[[+-]+\])*)", optimize | nosubs);
 static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize | nosubs);
 static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize | nosubs);
 static const std::regex commaTrimRe(R"([+\-C]+,)", optimize | nosubs);
@@ -129,7 +129,7 @@ static const std::regex clearThenSetRe(R"(C([+-]+))", optimize);
 static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])",
                                    optimize);
 static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
-static const std::regex copyLoopInnerRe(R"([<>]+[+-]+)", optimize | nosubs);
+static const std::regex copyLoopInnerRe(R"((?:<+|>+)[+-]+)", optimize | nosubs);
 static const std::regex clearSeqRe(R"(C{2,})", optimize | nosubs);
 }  // namespace goof2::vmRegex
 
