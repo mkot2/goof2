@@ -177,6 +177,7 @@ static const std::regex clearPassRe(R"((C([+-]+))|C{2,})", optimize);
 
 #include "simde/x86/avx2.h"
 #include "simde/x86/avx512.h"
+#include "simde/x86/sse2.h"
 
 // Safe count-zero helpers using C++20 <bit> utilities
 static inline unsigned tzcnt32(unsigned x) { return static_cast<unsigned>(std::countr_zero(x)); }
@@ -605,6 +606,94 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
             phaseAtP = (phaseAtP + Step - 1) & Mask;
         }
         return (size_t)(p - base + 1);
+    }
+}
+
+template <typename CellT>
+static inline size_t simdScan0FwdAny(const CellT* p, const CellT* end, unsigned step) {
+    const CellT* x = p + step;
+    size_t off = step;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x < end && *x != 0) {
+            x += step;
+            off += step;
+        }
+        return off;
+    } else {
+        const unsigned lanes = 16 / Bytes;
+        const simde__m128i vz = simde_mm_setzero_si128();
+        while (x + step * (lanes - 1) < end) {
+            CellT tmp[lanes];
+            for (unsigned i = 0; i < lanes; ++i) tmp[i] = x[i * step];
+            simde__m128i v = simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(tmp));
+            simde__m128i cmp;
+            if constexpr (Bytes == 1)
+                cmp = simde_mm_cmpeq_epi8(v, vz);
+            else if constexpr (Bytes == 2)
+                cmp = simde_mm_cmpeq_epi16(v, vz);
+            else if constexpr (Bytes == 4)
+                cmp = simde_mm_cmpeq_epi32(v, vz);
+            else
+                cmp = simde_mm_cmpeq_epi64(v, vz);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            if (m) {
+                unsigned idx = tzcnt32(static_cast<unsigned>(m));
+                return off + idx * step;
+            }
+            x += step * lanes;
+            off += step * lanes;
+        }
+        while (x < end && *x != 0) {
+            x += step;
+            off += step;
+        }
+        return off;
+    }
+}
+
+template <typename CellT>
+static inline size_t simdScan0BackAny(const CellT* base, const CellT* p, unsigned step) {
+    const CellT* x = p - step;
+    size_t back = step;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x >= base && *x != 0) {
+            x -= step;
+            back += step;
+        }
+        return back;
+    } else {
+        const unsigned lanes = 16 / Bytes;
+        const simde__m128i vz = simde_mm_setzero_si128();
+        while (x >= base + step * (lanes - 1)) {
+            CellT tmp[lanes];
+            for (unsigned i = 0; i < lanes; ++i) tmp[i] = x[-static_cast<int>(i) * (int)step];
+            simde__m128i v = simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(tmp));
+            simde__m128i cmp;
+            if constexpr (Bytes == 1)
+                cmp = simde_mm_cmpeq_epi8(v, vz);
+            else if constexpr (Bytes == 2)
+                cmp = simde_mm_cmpeq_epi16(v, vz);
+            else if constexpr (Bytes == 4)
+                cmp = simde_mm_cmpeq_epi32(v, vz);
+            else
+                cmp = simde_mm_cmpeq_epi64(v, vz);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            if (m) {
+                unsigned idx = tzcnt32(static_cast<unsigned>(m));
+                return back + idx * step;
+            }
+            x -= step * lanes;
+            back += step * lanes;
+        }
+        while (x >= base && *x != 0) {
+            x -= step;
+            back += step;
+        }
+        return back;
     }
 }
 
@@ -1499,13 +1588,7 @@ _SCN_RGT: {
                 while (cell + off < end && *(cell + off) != 0) off += 8;
             }
         } else {
-            // scalar fallback for arbitrary step
-            off = step;
-            while (cell + off + step * 3 < end && *(cell + off) != 0 && *(cell + off + step) != 0 &&
-                   *(cell + off + step * 2) != 0 && *(cell + off + step * 3) != 0) {
-                off += step * 4;
-            }
-            while (cell + off < end && *(cell + off) != 0) off += step;
+            off = simdScan0FwdAny<CellT>(cell, end, step);
         }
 
         cell += off;
@@ -1623,14 +1706,7 @@ _SCN_LFT: {
         }
         LOOP();
     } else {
-        // scalar fallback for arbitrary step
-        size_t back = step;
-        while (cell >= cellBase + back + step * 3 && *(cell - back) != 0 &&
-               *(cell - back - step) != 0 && *(cell - back - step * 2) != 0 &&
-               *(cell - back - step * 3) != 0) {
-            back += step * 4;
-        }
-        while (cell >= cellBase + back && *(cell - back) != 0) back += step;
+        size_t back = simdScan0BackAny<CellT>(cellBase, cell, step);
         cell -= back;
         if (cell < cellBase) {
             cell = cellBase;
