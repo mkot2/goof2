@@ -102,7 +102,7 @@ namespace goof2::vmRegex {
 using namespace std::regex_constants;
 static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize);
 static const std::regex addSubSeqRe(R"([+-]{2,})", optimize);
-static const std::regex ptrSeqRe(R"([><]{2,})", optimize);
+static const std::regex ptrSeqRe(R"([><]{2,})", optimize | std::regex::nosubs);
 static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize);
 static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize);
 static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize);
