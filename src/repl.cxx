@@ -46,8 +46,9 @@ constexpr auto bfColors = [] {
     return table;
 }();
 
-void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, std::string_view code) {
-    if (!supportsColor()) return;
+void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, std::string_view code,
+                 bool hasColor) {
+    if (!hasColor) return;
     const std::size_t cols = scr.columns();
     for (std::size_t i = 0; i < code.size() && (x + i) <= cols; ++i) {
         auto color = bfColors[static_cast<unsigned char>(code[i])];
@@ -117,7 +118,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
                    const std::vector<std::string>& dump, const std::vector<CellT>& cells,
                    const std::vector<size_t>& changed, const std::vector<size_t>& matches,
                    const std::string& input, size_t cellPtr, CellT cellVal, const ReplConfig& cfg,
-                   MenuState menuState, Tab tab, const std::string& menuInput) {
+                   MenuState menuState, Tab tab, const std::string& menuInput, bool hasColor) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
 
@@ -152,13 +153,13 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         if (backBuffer[i] != padded) {
             scr.print_str(1, 1 + i, padded);
             if (tab == Tab::Log && (line.rfind("$ ", 0) == 0 || line.rfind("  ", 0) == 0)) {
-                highlightBf(scr, 3, 1 + i, std::string_view(line).substr(2));
+                highlightBf(scr, 3, 1 + i, std::string_view(line).substr(2), hasColor);
             }
             backBuffer[i] = std::move(padded);
         }
     }
 
-    if (tab == Tab::Memory && supportsColor()) {
+    if (tab == Tab::Memory && hasColor) {
         const std::size_t yOffset = 3;
         const std::size_t xOffset = 10;
         const std::size_t cellStep = 4;
@@ -196,7 +197,7 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         std::string padded = pad(line);
         if (backBuffer[row - 1] != padded) {
             scr.print_str(1, row, padded);
-            highlightBf(scr, 3, row, lines[i]);
+            highlightBf(scr, 3, row, lines[i], hasColor);
             backBuffer[row - 1] = std::move(padded);
         }
     }
@@ -260,6 +261,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                               Term::Option::Raw);
     Term::Screen termSize = Term::screen_size();
     Term::Window scr(termSize);
+    bool hasColor = supportsColor();
     std::vector<std::string> log;
     std::vector<std::string> dump;
     std::string input;
@@ -329,7 +331,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     while (on) {
         if (tab == Tab::Memory) refreshDump();
         Term::cout << render<CellT>(scr, log, dump, cells, changed, searchMatches, input, cellPtr,
-                                    cells[cellPtr], cfg, menuState, tab, menuInput)
+                                    cells[cellPtr], cfg, menuState, tab, menuInput, hasColor)
                    << std::flush;
         Term::Event ev = Term::read_event();
         if (ev.type() == Term::Event::Type::Screen) {
@@ -337,7 +339,8 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
             scr = Term::Window(termSize);
             if (tab == Tab::Memory) refreshDump();
             Term::cout << render<CellT>(scr, log, dump, cells, changed, searchMatches, input,
-                                        cellPtr, cells[cellPtr], cfg, menuState, tab, menuInput)
+                                        cellPtr, cells[cellPtr], cfg, menuState, tab, menuInput,
+                                        hasColor)
                        << std::flush;
             continue;
         }
