@@ -5,8 +5,10 @@
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#if defined(__linux__)
+#ifdef __linux__
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #endif
 
 #include "vm.hxx"
