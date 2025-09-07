@@ -52,30 +52,35 @@ inline std::string processBalanced(std::string_view s, char no1, char no2) {
 template <typename Callback>
 inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb,
                                 std::function<size_t(const std::smatch&)> estimate = {}) {
+    std::vector<std::smatch> matches;
+    ptrdiff_t predicted = static_cast<ptrdiff_t>(str.size());
+    auto begin = str.cbegin();
+    auto end = str.cend();
+    std::smatch match;
+    while (std::regex_search(begin, end, match, re)) {
+        if (estimate) {
+            predicted +=
+                static_cast<ptrdiff_t>(estimate(match)) - static_cast<ptrdiff_t>(match.length());
+        }
+        matches.push_back(match);
+        begin = match[0].second;
+    }
+
     std::string result;
     if (estimate) {
-        ptrdiff_t predicted = static_cast<ptrdiff_t>(str.size());
-        auto b = str.cbegin();
-        auto e = str.cend();
-        std::smatch m;
-        while (std::regex_search(b, e, m, re)) {
-            predicted += static_cast<ptrdiff_t>(estimate(m)) - static_cast<ptrdiff_t>(m.length());
-            b = m[0].second;
-        }
         if (predicted < 0) predicted = 0;
         result.reserve(static_cast<size_t>(predicted));
     } else {
         result.reserve(str.size());
     }
-    auto begin = str.cbegin();
-    auto end = str.cend();
-    std::smatch match;
-    while (std::regex_search(begin, end, match, re)) {
-        result.append(begin, match[0].first);
-        result += cb(match);
-        begin = match[0].second;
+
+    auto last = str.cbegin();
+    for (const auto& m : matches) {
+        result.append(last, m[0].first);
+        result += cb(m);
+        last = m[0].second;
     }
-    result.append(begin, end);
+    result.append(last, str.cend());
     str = std::move(result);
 }
 
