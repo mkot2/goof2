@@ -1,0 +1,12 @@
+diff --git a/cpp-terminal/private/args.cpp b/cpp-terminal/private/args.cpp
+index d8f8d8f..e1e1e1 100644
+--- a/cpp-terminal/private/args.cpp
++++ b/cpp-terminal/private/args.cpp
+@@ -17,6 +17,7 @@
+   #include <windows.h>
+   #pragma warning( pop )
+   #include <processenv.h>
++  #include <shellapi.h>
+   #include "cpp-terminal/private/unicode.hpp"
+ // clang-format on
+ #elif defined(__APPLE__)
