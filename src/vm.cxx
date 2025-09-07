@@ -25,6 +25,7 @@
 #include <functional>
 #include <future>
 #include <iostream>
+#include <list>
 #include <ranges>
 #include <regex>
 #include <string>
@@ -41,7 +42,7 @@ using SvMatch = std::match_results<std::string_view::const_iterator>;
 namespace {
 constexpr std::size_t kCacheExpectedEntries = 64;
 constexpr std::size_t kCacheMaxEntries = 64;
-std::uint64_t cacheCounter = 0;
+std::list<size_t> cacheUsage;
 }  // namespace
 
 inline int32_t fold(std::string_view code, size_t& i, char match) {
@@ -1810,28 +1811,36 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     size_t key = 0;
     std::vector<instruction>* cacheVec = nullptr;
     if (cache) {
-        if (cache->empty()) cache->reserve(kCacheExpectedEntries);
+        if (cache->empty()) {
+            cache->reserve(kCacheExpectedEntries);
+            cacheUsage.clear();
+        }
         key = std::hash<std::string>{}(code);
         key ^= static_cast<size_t>(optimize) << 1;
         key ^= static_cast<size_t>(term) << 2;
         auto it = cache->find(key);
         if (it != cache->end() && it->second.source == code) {
             cacheVec = &it->second.instructions;
-            it->second.lastUsed = ++cacheCounter;
+            cacheUsage.splice(cacheUsage.begin(), cacheUsage, it->second.usageIter);
             sparse = it->second.sparse;
         } else {
-            auto& entry = (*cache)[key];
+            if (it == cache->end()) {
+                auto [newIt, inserted] = cache->emplace(key, CacheEntry{});
+                it = newIt;
+                cacheUsage.push_front(key);
+                it->second.usageIter = cacheUsage.begin();
+            } else {
+                cacheUsage.splice(cacheUsage.begin(), cacheUsage, it->second.usageIter);
+            }
+            auto& entry = it->second;
             entry.source = code;
             entry.instructions.clear();
-            entry.lastUsed = ++cacheCounter;
             entry.sparse = sparse;
             cacheVec = &entry.instructions;
             if (cache->size() > kCacheMaxEntries) {
-                auto victim = cache->begin();
-                for (auto iter = cache->begin(); iter != cache->end(); ++iter) {
-                    if (iter->second.lastUsed < victim->second.lastUsed) victim = iter;
-                }
-                cache->erase(victim);
+                size_t victimKey = cacheUsage.back();
+                cache->erase(victimKey);
+                cacheUsage.pop_back();
             }
         }
     }
