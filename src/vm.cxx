@@ -34,6 +34,8 @@
 #include <utility>
 #include <vector>
 
+#include "threadPool.hxx"
+
 using SvMatch = std::match_results<std::string_view::const_iterator>;
 
 namespace {
@@ -661,21 +663,32 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
-            regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
-                                [](const SvMatch&) { return std::string{}; });
-            regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const SvMatch& what) {
-                std::string_view current{what[0].first, static_cast<size_t>(what.length())};
-                const char first = current[0];
-                return (first == '+' || first == '-') ? processBalanced(current, '+', '-')
-                                                      : processBalanced(current, '>', '<');
-            });
-
-            regexReplaceInplace(code, goof2::vmRegex::clearLoopRe,
-                                [](const SvMatch&) { return std::string("C"); });
+            static goof2::ThreadPool pool;
+            pool.submit([&code]() {
+                    regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
+                                        [](const SvMatch&) { return std::string{}; });
+                })
+                .get();
+            pool.submit([&code]() {
+                    regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe,
+                                        [](const SvMatch& what) {
+                                            std::string_view current{
+                                                what[0].first, static_cast<size_t>(what.length())};
+                                            const char first = current[0];
+                                            return (first == '+' || first == '-')
+                                                       ? processBalanced(current, '+', '-')
+                                                       : processBalanced(current, '>', '<');
+                                        });
+                })
+                .get();
 
             const std::string baseCode = code;
-            auto scanFuture = std::async(std::launch::async, [baseCode, &scanloopMap,
-                                                              &scanloopClrMap]() {
+            auto clearFuture = pool.submit([baseCode]() {
+                return regexCollect(baseCode, goof2::vmRegex::clearLoopRe, [](const SvMatch&) {
+                    return std::pair<std::string, std::function<void()>>{std::string("C"), {}};
+                });
+            });
+            auto scanFuture = pool.submit([baseCode, &scanloopMap, &scanloopClrMap]() {
                 std::vector<RegexReplacement> reps;
                 auto collect = [&](const std::regex& re, bool clrFlag) {
                     auto vec = regexCollect(baseCode, re, [&](const SvMatch& what) {
@@ -704,14 +717,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 return reps;
             });
 
-            auto commaFuture = std::async(std::launch::async, [baseCode]() {
+            auto commaFuture = pool.submit([baseCode]() {
                 return regexCollect(baseCode, goof2::vmRegex::commaTrimRe, [](const SvMatch&) {
                     return std::pair<std::string, std::function<void()>>{std::string(","), {}};
                 });
             });
 
             // Compute copy-loop replacements in parallel and aggregate with others.
-            auto copyFuture = std::async(std::launch::async, [baseCode, &copyloopMap]() {
+            auto copyFuture = pool.submit([baseCode, &copyloopMap]() {
                 return regexCollect(baseCode, goof2::vmRegex::copyLoopRe, [&](const SvMatch& what) {
                     int offset = 0;
                     std::string_view whole{what[0].first, static_cast<size_t>(what.length())};
@@ -769,11 +782,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 });
             });
 
+            auto clearReps = clearFuture.get();
             auto scanReps = scanFuture.get();
             auto commaReps = commaFuture.get();
             auto copyReps = copyFuture.get();
             std::vector<RegexReplacement> allReps;
-            allReps.reserve(scanReps.size() + commaReps.size() + copyReps.size());
+            allReps.reserve(clearReps.size() + scanReps.size() + commaReps.size() +
+                            copyReps.size());
+            allReps.insert(allReps.end(), clearReps.begin(), clearReps.end());
             allReps.insert(allReps.end(), scanReps.begin(), scanReps.end());
             allReps.insert(allReps.end(), commaReps.begin(), commaReps.end());
             allReps.insert(allReps.end(), copyReps.begin(), copyReps.end());
@@ -793,25 +809,32 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             }
 
             // Single-pass clear transforms: C([+-]+) -> S[+-]+ and C{2,} -> C
-            regexReplaceInplace(code, goof2::vmRegex::clearPassRe, [](const SvMatch& what) {
-                if (what[2].matched) {
-                    std::string result{"S"};
-                    result.append(what[2].first, what[2].second);
-                    return result;
-                }
-                return std::string("C");
-            });
+            pool.submit([&code]() {
+                    regexReplaceInplace(code, goof2::vmRegex::clearPassRe, [](const SvMatch& what) {
+                        if (what[2].matched) {
+                            std::string result{"S"};
+                            result.append(what[2].first, what[2].second);
+                            return result;
+                        }
+                        return std::string("C");
+                    });
+                })
+                .get();
 
             // (copy-loop handled in the aggregated, parallel stage above)
 
             if constexpr (!Term)
-                regexReplaceInplace(code, goof2::vmRegex::leadingSetRe, [](const SvMatch& what) {
-                    std::string result;
-                    result.append(what[1].first, what[1].second);
-                    result += 'S';
-                    result.append(what[2].first, what[2].second);
-                    return result;
-                });  // We can't really assume in term
+                pool.submit([&code]() {
+                        regexReplaceInplace(code, goof2::vmRegex::leadingSetRe,
+                                            [](const SvMatch& what) {
+                                                std::string result;
+                                                result.append(what[1].first, what[1].second);
+                                                result += 'S';
+                                                result.append(what[2].first, what[2].second);
+                                                return result;
+                                            });
+                    })
+                    .get();  // We can't really assume in term
 
             // (C-sequence collapse handled in clearPassRe)
         }
