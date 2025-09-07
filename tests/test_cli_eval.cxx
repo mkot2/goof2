@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "helpers.hxx"
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -75,10 +77,10 @@ static std::string run_inline(const std::string& code, const std::string& extra 
 int main() {
     const std::string helloA = "++++++++[>++++++++<-]>+.";  // prints 'A'
     std::string out = run_inline(helloA);
-    assert(out == "A");
+    assert(hashOutput(out) == 0x13099d40d095b684ULL);
     out = run_inline(helloA, "-nopt");
-    assert(out == "A");
+    assert(hashOutput(out) == 0x13099d40d095b684ULL);
     out = run_inline(helloA, "-i nofile.bf");
-    assert(out == "A");
+    assert(hashOutput(out) == 0x13099d40d095b684ULL);
     return 0;
 }

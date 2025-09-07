@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "helpers.hxx"
 #include "vm.hxx"
 
 template <typename CellT>
@@ -41,7 +42,7 @@ static void test_io() {
     std::vector<CellT> cells(1, 0);
     size_t ptr = 0;
     std::string out = run<CellT>(",.", cells, ptr, "A");
-    assert(out == "A");
+    assert(hashOutput(out) == 0x13099d40d095b684ULL);
     assert(cells[0] == static_cast<CellT>('A'));
 }
 
