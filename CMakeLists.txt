@@ -91,6 +91,7 @@ if(GOOF2_ENABLE_REPL)
             GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
             GIT_TAG a5c1d2619c96ae609357a7109076000b05ad006c
             GIT_SHALLOW TRUE
+            PATCH_COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/cpp-terminal-winternl.patch
         )
         FetchContent_MakeAvailable(cpp-terminal)
     endif()
