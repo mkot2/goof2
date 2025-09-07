@@ -4,6 +4,13 @@
 set(_file "cpp-terminal/private/terminfo.cpp")
 if(EXISTS "${_file}")
   file(READ "${_file}" _contents)
+  # Repair any accidental corruption like "#en  #include <winternl.h>\n dif" -> "#endif"
+  set(_before "${_contents}")
+  string(REPLACE "#en  #include <winternl.h>\ndif" "#endif" _contents "${_contents}")
+  if(NOT "${_before}" STREQUAL "${_contents}")
+    file(WRITE "${_file}" "${_contents}")
+    message(STATUS "cpp-terminal patch: repaired malformed #endif in terminfo.cpp")
+  endif()
   string(FIND "${_contents}" "#include <winternl.h>" _already)
   if(_already GREATER_EQUAL 0)
     message(STATUS "cpp-terminal patch: winternl.h already present")
