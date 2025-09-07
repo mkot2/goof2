@@ -29,6 +29,8 @@
 #include <unordered_map>
 #include <vector>
 
+using SvMatch = std::match_results<std::string_view::const_iterator>;
+
 namespace {
 constexpr std::size_t kCacheExpectedEntries = 64;
 constexpr std::size_t kCacheMaxEntries = 64;
@@ -51,12 +53,13 @@ inline std::string processBalanced(std::string_view s, char no1, char no2) {
 
 template <typename Callback>
 inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb,
-                                std::function<size_t(const std::smatch&)> estimate = {}) {
-    std::vector<std::smatch> matches;
+                                std::function<size_t(const SvMatch&)> estimate = {}) {
+    std::vector<SvMatch> matches;
     ptrdiff_t predicted = static_cast<ptrdiff_t>(str.size());
-    auto begin = str.cbegin();
-    auto end = str.cend();
-    std::smatch match;
+    std::string_view sv{str};
+    auto begin = sv.cbegin();
+    auto end = sv.cend();
+    SvMatch match;
     while (std::regex_search(begin, end, match, re)) {
         if (estimate) {
             predicted +=
@@ -74,13 +77,13 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
         result.reserve(str.size());
     }
 
-    auto last = str.cbegin();
+    auto last = sv.cbegin();
     for (const auto& m : matches) {
         result.append(last, m[0].first);
         result += cb(m);
         last = m[0].second;
     }
-    result.append(last, str.cend());
+    result.append(last, sv.cend());
     str = std::move(result);
 }
 
@@ -596,21 +599,20 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         if (optimize) {
             regexReplaceInplace(
                 code, goof2::vmRegex::nonInstructionRe,
-                [](const std::smatch&) { return std::string{}; },
-                [](const std::smatch&) { return 0u; });
-            regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const std::smatch& what) {
-                const char first = what.str()[0];
-                return (first == '+' || first == '-') ? processBalanced(what.str(), '+', '-')
-                                                      : processBalanced(what.str(), '>', '<');
+                [](const SvMatch&) { return std::string{}; }, [](const SvMatch&) { return 0u; });
+            regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const SvMatch& what) {
+                std::string_view current{what[0].first, static_cast<size_t>(what.length())};
+                const char first = current[0];
+                return (first == '+' || first == '-') ? processBalanced(current, '+', '-')
+                                                      : processBalanced(current, '>', '<');
             });
 
             regexReplaceInplace(
-                code, goof2::vmRegex::clearLoopRe,
-                [](const std::smatch&) { return std::string("C"); },
-                [](const std::smatch&) { return 1u; });
+                code, goof2::vmRegex::clearLoopRe, [](const SvMatch&) { return std::string("C"); },
+                [](const SvMatch&) { return 1u; });
 
-            regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
-                const auto current = what.str();
+            regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const SvMatch& what) {
+                std::string_view current{what[0].first, static_cast<size_t>(what.length())};
                 const auto count =
                     std::ranges::count(current, '>') - std::ranges::count(current, '<');
                 scanloopMap.push_back(std::abs(count));
@@ -618,15 +620,15 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 if (count > 0)
                     return std::string("R");
                 else if (count == 0)
-                    return current;
+                    return std::string(current);
                 else
                     return std::string("L");
             });
 
             regexReplaceInplace(
                 code, goof2::vmRegex::scanLoopRe,
-                [&](const std::smatch& what) {
-                    const auto current = what.str();
+                [&](const SvMatch& what) {
+                    std::string_view current{what[0].first, static_cast<size_t>(what.length())};
                     const auto count =
                         std::ranges::count(current, '>') - std::ranges::count(current, '<');
                     scanloopMap.push_back(std::abs(count));
@@ -636,28 +638,33 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     else
                         return std::string("L");
                 },
-                [](const std::smatch&) { return 1u; });
+                [](const SvMatch&) { return 1u; });
 
             regexReplaceInplace(
-                code, goof2::vmRegex::commaTrimRe,
-                [](const std::smatch&) { return std::string(","); },
-                [](const std::smatch&) { return 1u; });
+                code, goof2::vmRegex::commaTrimRe, [](const SvMatch&) { return std::string(","); },
+                [](const SvMatch&) { return 1u; });
             regexReplaceInplace(
                 code, goof2::vmRegex::clearThenSetRe,
-                [](const std::smatch& what) { return std::string("S") + what[1].str(); },
-                [](const std::smatch& what) { return 1u + static_cast<size_t>(what[1].length()); });
+                [](const SvMatch& what) {
+                    std::string result{"S"};
+                    result.append(what[1].first, what[1].second);
+                    return result;
+                },
+                [](const SvMatch& what) { return 1u + static_cast<size_t>(what[1].length()); });
 
-            regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
+            regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const SvMatch& what) {
                 int offset = 0;
-                const std::string whole = what.str();
-                const std::string current = what[1].str() + what[2].str();
+                std::string_view whole{what[0].first, static_cast<size_t>(what.length())};
+                std::string current{what[1].first, what[1].second};
+                current.append(what[2].first, what[2].second);
 
                 if (std::count(whole.begin(), whole.end(), '>') -
                         std::count(whole.begin(), whole.end(), '<') ==
                     0) {
-                    std::smatch whatL;
-                    auto start = current.cbegin();
-                    auto end = current.cend();
+                    SvMatch whatL;
+                    std::string_view currentView{current};
+                    auto start = currentView.cbegin();
+                    auto end = currentView.cend();
                     std::unordered_map<int, int> deltaMap;
                     std::vector<int> order;
                     while (std::regex_search(start, end, whatL, goof2::vmRegex::copyLoopInnerRe)) {
@@ -685,24 +692,27 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     // When all deltas are zero, drop the P instructions and only clear.
                     return std::string("C");
                 } else {
-                    return whole;
+                    return std::string(whole);
                 }
             });
 
             if constexpr (!Term)
                 regexReplaceInplace(
                     code, goof2::vmRegex::leadingSetRe,
-                    [](const std::smatch& what) {
-                        return what[1].str() + std::string("S") + what[2].str();
+                    [](const SvMatch& what) {
+                        std::string result;
+                        result.append(what[1].first, what[1].second);
+                        result += 'S';
+                        result.append(what[2].first, what[2].second);
+                        return result;
                     },
-                    [](const std::smatch& what) {
+                    [](const SvMatch& what) {
                         return static_cast<size_t>(what[1].length() + 1 + what[2].length());
                     });  // We can't really assume in term
 
             regexReplaceInplace(
-                code, goof2::vmRegex::clearSeqRe,
-                [](const std::smatch&) { return std::string("C"); },
-                [](const std::smatch&) { return 1u; });
+                code, goof2::vmRegex::clearSeqRe, [](const SvMatch&) { return std::string("C"); },
+                [](const SvMatch&) { return 1u; });
         }
 
         std::vector<size_t> braceTable(code.length());
