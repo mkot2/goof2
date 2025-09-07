@@ -34,7 +34,9 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg);
 
 template <typename CellT>
 inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
-                       std::ostream& out = std::cout) {
+                       std::ostream& out = std::cout, const std::vector<size_t>* changed = nullptr,
+                       bool highlight = false, bool searchActive = false,
+                       uint64_t searchValue = 0) {
     if (cells.empty()) {
         out << "Memory dump:" << '\n' << "<empty>" << std::endl;
         return;
@@ -53,7 +55,14 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
             out << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
             row += 10;
         }
-        out << (i == cellPtr ? ansi::green : ansi::reset) << +cells[i] << ansi::reset
+        bool changedCell = highlight && changed &&
+                           std::find(changed->begin(), changed->end(), i) != changed->end();
+        bool match = searchActive && static_cast<uint64_t>(cells[i]) == searchValue;
+        const auto& color = i == cellPtr  ? ansi::green
+                            : match       ? ansi::red
+                            : changedCell ? ansi::yellow
+                                          : ansi::reset;
+        out << color << +cells[i] << ansi::reset
             << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
     }
     out << ansi::reset << std::endl;
