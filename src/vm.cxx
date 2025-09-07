@@ -643,6 +643,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 int eof, MemoryModel model, bool adaptive, size_t span, goof2::ProfileInfo* profile,
                 std::vector<instruction>* cached) {
     std::vector<instruction> localInstructions;
+    localInstructions.reserve(code.size());
     auto* instructionsPtr = cached ? cached : &localInstructions;
     bool hasInstructions = cached && !cached->empty();
     auto& instructions = *instructionsPtr;
