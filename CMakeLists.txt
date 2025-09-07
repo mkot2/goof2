@@ -99,16 +99,9 @@ if(MINGW)
     set(CMAKE_CXX_ARCHIVE_FINISH      "<CMAKE_RANLIB> <TARGET>" CACHE STRING "" FORCE)
 endif()
 
-option(BUILD_COVERAGE "Enable coverage reporting" OFF)
 option(GOOF2_ENABLE_REPL "Enable interactive REPL" ON)
 option(GOOF2_BUILD_TESTS "Build unit and fuzz tests" ON)
 
-if(BUILD_COVERAGE
-        AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
-        AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    add_compile_options(--coverage -O0 -g)
-    add_link_options(--coverage)
-endif()
 #Default to a Release build if no build type is explicitly set.This keeps
 #binaries small and enables the high - optimization flags defined below.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -394,20 +387,3 @@ else()
     message(STATUS "Valgrind not found; 'memcheck' target will be unavailable")
 endif()
 
-if(BUILD_COVERAGE)
-    find_program(LCOV_EXE lcov)
-    find_program(GENHTML_EXE genhtml)
-    if(LCOV_EXE AND GENHTML_EXE)
-        add_custom_target(coverage
-            DEPENDS vm_execute_tests
-            COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-            COMMAND ${LCOV_EXE} --capture --directory . --output-file coverage.info
-            COMMAND ${LCOV_EXE} --remove coverage.info '/usr/*' --output-file coverage.info
-            COMMAND ${GENHTML_EXE} coverage.info --output-directory coverage
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-            COMMENT "Run tests and generate coverage report"
-        )
-    else()
-        message(WARNING "lcov not found; coverage target will not be available")
-    endif()
-endif()
