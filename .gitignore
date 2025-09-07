@@ -2,3 +2,4 @@
 build/
 *.exe
 bf/1gb.b
+/build-rel

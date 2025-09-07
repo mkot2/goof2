@@ -63,16 +63,20 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     std::string_view sv{str};
     using Iterator = std::string_view::const_iterator;
 
+    // Fast path: if there are no matches, avoid rebuilding the string.
+    std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end;
+    if (it == end) return;
+
     std::string result;
     result.reserve(str.size());
 
     Iterator last = sv.begin();
-    for (std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end; it != end; ++it) {
+    do {
         const SvMatch& m = *it;
         result.append(last, m[0].first);
         result += cb(m);
         last = m[0].second;
-    }
+    } while (++it != end);
     result.append(last, sv.end());
     str = std::move(result);
 }
@@ -88,6 +92,8 @@ template <typename Callback>
 std::vector<RegexReplacement> regexCollect(const std::string& str, const std::regex& re,
                                            Callback cb) {
     std::vector<RegexReplacement> reps;
+    // Heuristic: reserve some space to reduce reallocations on dense matches.
+    reps.reserve(std::max<size_t>(8, str.size() / 16));
     std::string_view sv{str};
     using Iterator = std::string_view::const_iterator;
     for (std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end; it != end; ++it) {
@@ -117,6 +123,20 @@ std::vector<RegexReplacement> regexCollect(const std::string& str, const std::re
 namespace goof2 {
 #ifdef _WIN32
 static void* default_os_alloc(size_t bytes) {
+    // Prefer reserving a large contiguous region and committing on demand to
+    // reduce working set for long-running programs. Fall back to simple
+    // reserve+commit of the requested size if large reservation fails.
+    // Note: MEM_RELEASE ignores size; passing 0 frees the entire region.
+    const size_t maxReserve = static_cast<size_t>(GOOF2_TAPE_MAX_BYTES);
+    void* base = VirtualAlloc(nullptr, maxReserve, MEM_RESERVE, PAGE_READWRITE);
+    if (base) {
+        // Commit only the currently needed portion.
+        void* commit = VirtualAlloc(base, bytes, MEM_COMMIT, PAGE_READWRITE);
+        if (commit) return base;
+        // Commit failed; release reservation and fall back.
+        VirtualFree(base, 0, MEM_RELEASE);
+    }
+    // Fallback: reserve+commit exactly the requested size.
     return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 }
 static void default_os_free(void* ptr, size_t) { VirtualFree(ptr, 0, MEM_RELEASE); }
@@ -142,11 +162,14 @@ static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize | 
 static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize | nosubs);
 static const std::regex commaTrimRe(R"([+\-C]+,)", optimize | nosubs);
 static const std::regex clearThenSetRe(R"(C([+-]+))", optimize);
+// We only use the full match for copy-loop detection; avoid submatch overhead.
 static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])",
                                    optimize);
 static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
 static const std::regex copyLoopInnerRe(R"((?:<+|>+)[+-]+)", optimize | nosubs);
 static const std::regex clearSeqRe(R"(C{2,})", optimize | nosubs);
+// Combined clear pass: C([+-]+) -> S[+-]+   and   C{2,} -> C
+static const std::regex clearPassRe(R"((C([+-]+))|C{2,})", optimize);
 }  // namespace goof2::vmRegex
 
 #include "simde/x86/avx2.h"
@@ -642,8 +665,10 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                             rep = "L";
                         return std::pair<std::string, std::function<void()>>{
                             std::move(rep), [&, clrFlag, step = std::abs(count)]() {
-                                scanloopMap.push_back(step);
-                                scanloopClrMap.push_back(clrFlag);
+                                if (step > 0) {
+                                    scanloopMap.push_back(step);
+                                    scanloopClrMap.push_back(clrFlag);
+                                }
                             }};
                     });
                     reps.insert(reps.end(), vec.begin(), vec.end());
@@ -723,17 +748,27 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             std::sort(allReps.begin(), allReps.end(),
                       [](const auto& a, const auto& b) { return a.start > b.start; });
             for (auto& r : allReps) {
-                code.replace(r.start, r.end - r.start, r.text);
+                const size_t rlen = r.end - r.start;
+                bool changed = true;
+                if (rlen == r.text.size()) {
+                    changed = !std::equal(code.begin() + r.start, code.begin() + r.end, r.text.begin());
+                }
+                if (changed) {
+                    code.replace(r.start, rlen, r.text);
+                }
                 if (r.sideEffect) r.sideEffect();
             }
 
-            // C([+-]+) -> S[+-]+
+            // Single-pass clear transforms: C([+-]+) -> S[+-]+ and C{2,} -> C
             regexReplaceInplace(
-                code, goof2::vmRegex::clearThenSetRe,
+                code, goof2::vmRegex::clearPassRe,
                 [](const SvMatch& what) {
-                    std::string result{"S"};
-                    result.append(what[1].first, what[1].second);
-                    return result;
+                    if (what[2].matched) {
+                        std::string result{"S"};
+                        result.append(what[2].first, what[2].second);
+                        return result;
+                    }
+                    return std::string("C");
                 });
 
             // (copy-loop handled in the aggregated, parallel stage above)
@@ -749,9 +784,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                         return result;
                     });  // We can't really assume in term
 
-            // Collapse C{2,} -> C
-            regexReplaceInplace(
-                code, goof2::vmRegex::clearSeqRe, [](const SvMatch&) { return std::string("C"); });
+            // (C-sequence collapse handled in clearPassRe)
         }
 
         std::vector<size_t> braceTable(code.length());
@@ -972,11 +1005,17 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     constexpr size_t PAGE_SIZE = 1u << 16;  // 64KB pages for paged growth
     size_t fibA = cells.size(), fibB = cells.size();
     auto chooseModel = [&](size_t size) {
+        // Heuristics based on bytes rather than cells to keep working set small.
+        const size_t bytes = size * sizeof(CellT);
 #if GOOF2_HAS_OS_VM
-        if (size > (1u << 28)) return MemoryModel::OSBacked;
+        // Switch to OS-backed memory once tape exceeds ~64 MiB to avoid
+        // large contiguous allocations and reduce commit footprint.
+        if (bytes > (size_t(64) << 20)) return MemoryModel::OSBacked;
 #endif
-        if (size > (1u << 24)) return MemoryModel::Paged;
-        if (size > (1u << 16)) return MemoryModel::Fibonacci;
+        // Use paged growth for medium tapes (> 8 MiB) to avoid big over-allocs.
+        if (bytes > (size_t(8) << 20)) return MemoryModel::Paged;
+        // For smaller, prefer Fibonacci to trade minimal overhead for fewer reallocs.
+        if (bytes > (size_t(1) << 20)) return MemoryModel::Fibonacci;
         return MemoryModel::Contiguous;
     };
     auto ensure = [&](ptrdiff_t currentCell, ptrdiff_t neededIndex) {
@@ -1742,19 +1781,17 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     if (adaptive) model = MemoryModel::Contiguous;
     size_t predictedSpan = std::max(spanInfo.span, cells.size());
 
-    // Heuristic: small tapes use contiguous doubling, medium tapes use
-    // Fibonacci growth to trade memory for fewer reallocations, large tapes
-    // switch to fixed-size paged allocation, and very large tapes use
-    // OS-backed virtual memory when available.
+    // Heuristic: choose model based on predicted bytes to keep memory usage low.
     if (dynamicSize && adaptive) {
+        const size_t predictedBytes = predictedSpan * sizeof(CellT);
 #if GOOF2_HAS_OS_VM
-        if (predictedSpan > (1u << 28))
+        if (predictedBytes > (size_t(64) << 20))
             model = MemoryModel::OSBacked;
         else
 #endif
-            if (predictedSpan > (1u << 24))
+            if (predictedBytes > (size_t(8) << 20))
             model = MemoryModel::Paged;
-        else if (predictedSpan > (1u << 16))
+        else if (predictedBytes > (size_t(1) << 20))
             model = MemoryModel::Fibonacci;
     }
     if (dynamicSize) {

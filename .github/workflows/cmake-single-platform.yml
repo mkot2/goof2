@@ -9,6 +9,10 @@ name: CMake with prebuilt artifacts
   push:
     branches: ["main"]
 
+# Restrict the default GITHUB_TOKEN permissions for least privilege.
+permissions:
+  contents: read
+
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release

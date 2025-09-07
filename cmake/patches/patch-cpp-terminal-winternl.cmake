@@ -1,4 +1,6 @@
-# Apply the winternl.h include to cpp-terminal on Windows builds without Git.
+# Apply cpp-terminal patches when fetched or when vendored.
+# - Fix Windows includes (winternl/shellapi) to avoid missing symbols.
+# - Tweak upstream CMake to reduce warnings and speed builds (PCH + Unity).
 # This script expects to run with working directory set to the cpp-terminal source dir.
 
 set(_file "cpp-terminal/private/terminfo.cpp")
@@ -70,4 +72,44 @@ if(EXISTS "${_args_file}")
   endif()
 else()
   message(WARNING "cpp-terminal patch: file not found: ${_args_file}")
+endif()
+
+# Silence MSVC-only pragma warnings for GCC/Clang by augmenting upstream Warnings.cmake
+set(_warns "cmake/Warnings.cmake")
+if(EXISTS "${_warns}")
+  file(READ "${_warns}" _w)
+  string(FIND "${_w}" "-Wno-unknown-pragmas" _has_no_unknown_pragmas)
+  if(_has_no_unknown_pragmas EQUAL -1)
+    file(APPEND "${_warns}" "\n# goof2 patch: silence MSVC-only pragmas under GCC/Clang\ntarget_compile_options(${PROJECT_NAME}Warnings INTERFACE \n  \"$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-unknown-pragmas>\"\n)\n")
+    message(STATUS "cpp-terminal patch: appended -Wno-unknown-pragmas to Warnings.cmake")
+  else()
+    message(STATUS "cpp-terminal patch: Warnings.cmake already silences unknown pragmas")
+  endif()
+else()
+  message(WARNING "cpp-terminal patch: Warnings.cmake not found; skipping warnings tweak")
+endif()
+
+# Speed up cpp-terminal build: enable Unity for the target and add PCH
+set(_ct_cmake "cpp-terminal/CMakeLists.txt")
+if(EXISTS "${_ct_cmake}")
+  file(READ "${_ct_cmake}" _ct)
+  string(FIND "${_ct}" "goof2 patch: speed up build" _already_speed)
+  if(_already_speed EQUAL -1)
+    set(_append "\n# goof2 patch: speed up build\n# Precompile some common standard headers (avoid Windows headers to prevent macro collisions)\ntarget_precompile_headers(cpp-terminal PRIVATE <string> <vector> <string_view> <optional> <variant>)\n# Enable CMake Unity for faster compiles (batch common sources)\nset_property(TARGET cpp-terminal PROPERTY UNITY_BUILD ON)\nset_property(TARGET cpp-terminal PROPERTY UNITY_BUILD_BATCH_SIZE 8)\n")
+    file(APPEND "${_ct_cmake}" "${_append}")
+    message(STATUS "cpp-terminal patch: appended Unity build and PCH to cpp-terminal CMake")
+  else()
+    # If previous patch included Windows headers in PCH, rewrite to STL-only
+    set(_pat "target_precompile_headers(cpp-terminal PRIVATE <windows.h> <shellapi.h> <winternl.h> <string> <vector> <string_view> <optional> <variant>)")
+    set(_rep "target_precompile_headers(cpp-terminal PRIVATE <string> <vector> <string_view> <optional> <variant>)")
+    string(REPLACE "${_pat}" "${_rep}" _ct2 "${_ct}")
+    if(NOT "${_ct2}" STREQUAL "${_ct}")
+      file(WRITE "${_ct_cmake}" "${_ct2}")
+      message(STATUS "cpp-terminal patch: updated PCH to avoid Windows headers")
+    else()
+      message(STATUS "cpp-terminal patch: Unity/PCH tweaks already present")
+    endif()
+  endif()
+else()
+  message(WARNING "cpp-terminal patch: file not found: ${_ct_cmake}")
 endif()
