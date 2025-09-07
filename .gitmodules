@@ -6,3 +6,7 @@
         path = simde
         url = https://github.com/simd-everywhere/simde
         branch = master
+[submodule "xxhash"]
+        path = xxhash
+        url = https://github.com/Cyan4973/xxHash
+        branch = dev
