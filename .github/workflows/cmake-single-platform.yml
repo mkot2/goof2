@@ -45,6 +45,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ccache
 
+      - name: Install Valgrind (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -96,6 +100,10 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: build
         run: ctest -C ${{env.BUILD_TYPE}} -j$(nproc) --output-on-failure
+
+      - name: Memcheck with Valgrind (Linux)
+        if: runner.os == 'Linux'
+        run: cmake --build build --target memcheck
 
       - name: Test (Windows)
         if: runner.os == 'Windows'

@@ -27,8 +27,9 @@ elseif(CLCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CLCACHE_PROGRAM}")
 endif()
 
-if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. Use GCC, Clang, or clang-cl.")
+# Allow GCC, Clang (including clang-cl), and MSVC. Fail for anything else.
+if(NOT (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" OR MSVC))
+    message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. Use GCC, Clang/clang-cl, or MSVC.")
 endif()
 
 include(FetchContent)
@@ -84,8 +85,11 @@ endif()
 
 if(GOOF2_ENABLE_REPL)
     set(CPP_TERMINAL_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cpp-terminal)
+
+    # Try vendored submodule first
     if(EXISTS ${CPP_TERMINAL_SOURCE_DIR}/CMakeLists.txt)
         add_subdirectory(${CPP_TERMINAL_SOURCE_DIR} _deps/cpp-terminal-build)
+        set(HAVE_CPP_TERMINAL TRUE)
     else()
         FetchContent_Declare(cpp-terminal
             GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
@@ -163,6 +167,10 @@ target_link_libraries(goof2 PRIVATE
 )
 if(GOOF2_ENABLE_REPL)
     target_link_libraries(goof2 PRIVATE cpp-terminal::cpp-terminal)
+    if (WIN32)
+        # Needed for CommandLineToArgvW on MinGW/Windows builds
+        target_link_libraries(goof2 PRIVATE shell32)
+    endif()
     target_compile_definitions(goof2 PRIVATE GOOF2_ENABLE_REPL)
 endif()
 
@@ -223,6 +231,15 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
         $<$<CONFIG:Release>:/OPT:ICF>
     )
     set_property(TARGET goof2 PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+elseif(MSVC)
+    target_compile_options(goof2 PRIVATE
+        $<$<CONFIG:Release>:/O2>
+    )
+    target_link_options(goof2 PRIVATE
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+    )
+    set_property(TARGET goof2 PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
@@ -237,6 +254,29 @@ endif()
 enable_testing()
 if(GOOF2_BUILD_TESTS)
     add_subdirectory(tests)
+endif()
+
+# Provide a convenient Valgrind memcheck target and configuration for CTest
+# Only available when Valgrind is present (typically on Linux/macOS)
+include(CTest)
+find_program(VALGRIND_EXE NAMES valgrind)
+if(VALGRIND_EXE)
+    # Standard, strict Valgrind options suitable for CI
+    set(MEMORYCHECK_COMMAND "${VALGRIND_EXE}")
+    set(MEMORYCHECK_COMMAND_OPTIONS "--leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect --error-exitcode=2 --track-origins=yes --num-callers=50")
+    set(MEMORYCHECK_TYPE "Valgrind")
+
+    # Export to CTest so `ctest -T memcheck` works from the build tree
+    set(CTEST_MEMORYCHECK_COMMAND "${MEMORYCHECK_COMMAND}")
+    set(CTEST_MEMORYCHECK_COMMAND_OPTIONS "${MEMORYCHECK_COMMAND_OPTIONS}")
+
+    add_custom_target(memcheck
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --timeout 60 -T memcheck
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Run tests under Valgrind (ctest -T memcheck)"
+    )
+else()
+    message(STATUS "Valgrind not found; 'memcheck' target will be unavailable")
 endif()
 
 if(BUILD_COVERAGE)

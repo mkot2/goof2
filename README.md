@@ -45,6 +45,22 @@ cmake --build build --target coverage
 An HTML report will be generated in `build/coverage`. Open
 `build/coverage/index.html` in a browser to explore the coverage data.
 
+## Memory checking (Valgrind)
+
+On platforms where Valgrind is available (e.g., Linux), you can run the
+test suite under Valgrind to detect memory leaks and invalid memory use:
+
+```sh
+sudo apt-get install -y valgrind   # Debian/Ubuntu
+cmake -S . -B build
+cmake --build build
+cmake --build build --target memcheck
+```
+
+This invokes `ctest -T memcheck` with strict options
+(`--leak-check=full`, `--show-leak-kinds=all`, `--error-exitcode=2`, etc.).
+The memcheck target is only available when Valgrind is found.
+
 ## Usage
 
 The VM can execute a Brainfuck program from a file using `-i <file>` or directly from

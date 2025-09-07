@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -162,10 +163,11 @@ static const std::regex clearSeqRe(R"(C{2,})", optimize | nosubs);
 #include "simde/x86/avx2.h"
 #include "simde/x86/avx512.h"
 
-#define TZCNT32(x) __builtin_ctz((unsigned)(x))
-#define LZCNT32(x) __builtin_clz((unsigned)(x))
-#define TZCNT64(x) __builtin_ctzll((unsigned long long)(x))
-#define LZCNT64(x) __builtin_clzll((unsigned long long)(x))
+// Safe count-zero helpers using C++20 <bit> utilities
+static inline unsigned tzcnt32(unsigned x) { return static_cast<unsigned>(std::countr_zero(x)); }
+static inline unsigned lzcnt32(unsigned x) { return static_cast<unsigned>(std::countl_zero(x)); }
+static inline unsigned tzcnt64(unsigned long long x) { return static_cast<unsigned>(std::countr_zero(x)); }
+static inline unsigned lzcnt64(unsigned long long x) { return static_cast<unsigned>(std::countl_zero(x)); }
 
 static inline bool runtimeHasAvx512() {
 #if defined(SIMDE_ARCH_X86) && !defined(__EMSCRIPTEN__)
@@ -352,7 +354,7 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
                 else
                     m = simde_mm512_cmpeq_epi64_mask(v, vz512);
                 if (m) {
-                    unsigned idx = TZCNT64((std::uint64_t)m);
+                    unsigned idx = tzcnt64((unsigned long long)m);
                     return (size_t)((x - p) + idx);
                 }
             }
@@ -376,7 +378,7 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
                 m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
             m = compressMask32<Bytes>(m);
             if (m) {
-                unsigned idx = TZCNT32((unsigned)m);
+                unsigned idx = tzcnt32((unsigned)m);
                 return (size_t)((x - p) + idx / Bytes);
             }
         }
@@ -420,7 +422,7 @@ static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
                 m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
             m = compressMask32<Bytes>(m);
             if (m) {
-                unsigned bit = 31u - (unsigned)LZCNT32((unsigned)m);
+                unsigned bit = 31u - lzcnt32((unsigned)m);
                 unsigned lane = bit / Bytes;
                 return (size_t)(p - (blk + lane));
             }
@@ -470,7 +472,7 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
                     m = simde_mm512_cmpeq_epi64_mask(v, vz512);
                 m &= strideMask64<Bytes>(Step, phase);
                 if (m) {
-                    unsigned idx = TZCNT64((std::uint64_t)m);
+                    unsigned idx = tzcnt64((unsigned long long)m);
                     return (size_t)((x - p) + idx);
                 }
                 phase = (phase + LANES512) & Mask;
@@ -497,7 +499,7 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
             m = compressMask32<Bytes>(m);
             m &= (int)strideMask32<Bytes, Step>(phase);
             if (m) {
-                unsigned idx = TZCNT32((unsigned)m);
+                unsigned idx = tzcnt32((unsigned)m);
                 return (size_t)((x - p) + idx / Bytes);
             }
             phase = (phase + LANES) & Mask;
@@ -549,7 +551,7 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
             m = compressMask32<Bytes>(m);
             m &= (int)strideMask32<Bytes, Step>(lane0);
             if (m) {
-                unsigned bit = 31u - (unsigned)LZCNT32((unsigned)m);
+                unsigned bit = 31u - lzcnt32((unsigned)m);
                 unsigned lane = bit / Bytes;
                 return (size_t)(p - (blk + lane));
             }
