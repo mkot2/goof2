@@ -780,8 +780,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     [[maybe_unused]] std::unordered_map<size_t, CellT> sparseTape;
     [[maybe_unused]] size_t sparseIndex = cellPtr;
     [[maybe_unused]] size_t sparseMaxIndex = 0;
-    CellT* cellBase = cells.data();
-    CellT* cell = cellBase + cellPtr;
+    CellT* __restrict cellBase = cells.data();
+    CellT* __restrict cell = cellBase + cellPtr;
     size_t osSize = cells.size();
     if constexpr (Sparse) {
         for (size_t i = 0; i < cells.size(); ++i) {
@@ -1219,7 +1219,7 @@ _SCN_RGT: {
     }
 
     for (;;) {
-        CellT* const end = cells.data() + cells.size();
+        CellT* const end = cellBase + cells.size();
         size_t off;
         if (step == 1) {
             off = simdScan0Fwd<CellT>(cell, end);
@@ -1402,7 +1402,7 @@ _SCN_CLR_RGT: {
 
     if (step == 1) {
         for (;;) {
-            CellT* end = cells.data() + cells.size();
+            CellT* end = cellBase + cells.size();
             size_t off = simdScan0Fwd<CellT>(cell, end);
             if (off == 0) {
                 LOOP();
@@ -1437,14 +1437,14 @@ _SCN_CLR_RGT: {
                 const ptrdiff_t rel = cell - cellBase;
                 ensure(rel, rel);
             }
-            if (cell < cells.data() + cells.size()) {
+            if (cell < cellBase + cells.size()) {
                 continue;
             }
             if constexpr (Dynamic) {
                 const ptrdiff_t rel = cell - cellBase;
                 ensure(rel, rel);
             } else {
-                cell = cells.data() + cells.size() - 1;
+                cell = cellBase + cells.size() - 1;
                 cellPtr = cell - cellBase;
                 std::cerr << "cell pointer moved beyond end" << std::endl;
                 return -1;
