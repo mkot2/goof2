@@ -54,12 +54,12 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     std::string result;
     result.reserve(str.size());
     auto begin = str.cbegin();
-    auto end = str.cend();
-    for (std::regex_iterator<std::string::const_iterator> it(begin, end, re), endIt; it != endIt;
-         ++it) {
-        result.append(begin, (*it)[0].first);
-        result += cb(*it);
-        begin = (*it)[0].second;
+    const auto end = str.cend();
+    for (std::sregex_iterator it(begin, end, re); it != std::sregex_iterator(); ++it) {
+        const auto& match = *it;
+        result.append(begin, match[0].first);
+        result += cb(match);
+        begin = match[0].second;
     }
     result.append(begin, end);
     str = std::move(result);
@@ -626,48 +626,50 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                     return std::string("S") + what[1].str();
                                 });
 
-            regexReplaceInplace(
-                code, goof2::vmRegex::copyLoopRe,
-                [&](const std::match_results<std::string::const_iterator>& what) {
-                    int offset = 0;
-                    const std::string whole = what.str();
-                    const std::string current = what[1].str() + what[2].str();
+            regexReplaceInplace(code, goof2::vmRegex::copyLoopRe,
+                                [&](const std::match_results<std::string::const_iterator>& what) {
+                                    int offset = 0;
+                                    std::string_view whole(what[0].first, what[0].second);
+                                    auto subBegin = what[1].matched ? what[1].first : what[2].first;
+                                    auto subEnd = what[1].matched ? what[1].second : what[2].second;
 
-                    if (std::count(whole.begin(), whole.end(), '>') -
-                            std::count(whole.begin(), whole.end(), '<') ==
-                        0) {
-                        std::unordered_map<int, int> deltaMap;
-                        std::vector<int> order;
-                        for (std::regex_iterator<std::string::const_iterator> it(
-                                 current.cbegin(), current.cend(), goof2::vmRegex::copyLoopInnerRe),
-                             endIt;
-                             it != endIt; ++it) {
-                            offset += -std::count((*it)[0].first, (*it)[0].second, '<') +
-                                      std::count((*it)[0].first, (*it)[0].second, '>');
-                            int delta = std::count((*it)[0].first, (*it)[0].second, '+') -
-                                        std::count((*it)[0].first, (*it)[0].second, '-');
-                            if (deltaMap.insert({offset, delta}).second) {
-                                order.push_back(offset);
-                            } else {
-                                deltaMap[offset] += delta;
-                            }
-                        }
-                        // Check if every target's accumulated delta is zero.
-                        const bool allZero = std::ranges::all_of(
-                            deltaMap, [](const auto& it) { return it.second == 0; });
-                        if (!allZero) {
-                            for (const auto& off : order) {
-                                copyloopMap.push_back(off);
-                                copyloopMap.push_back(deltaMap[off]);
-                            }
-                            return std::string(order.size(), 'P') + "C";
-                        }
-                        // When all deltas are zero, drop the P instructions and only clear.
-                        return std::string("C");
-                    } else {
-                        return whole;
-                    }
-                });
+                                    if (std::count(whole.begin(), whole.end(), '>') -
+                                            std::count(whole.begin(), whole.end(), '<') ==
+                                        0) {
+                                        std::unordered_map<int, int> deltaMap;
+                                        std::vector<int> order;
+                                        for (std::sregex_iterator it(
+                                                 subBegin, subEnd, goof2::vmRegex::copyLoopInnerRe);
+                                             it != std::sregex_iterator(); ++it) {
+                                            const auto& m = *it;
+                                            offset += -std::count(m[0].first, m[0].second, '<') +
+                                                      std::count(m[0].first, m[0].second, '>');
+                                            int delta = std::count(m[0].first, m[0].second, '+') -
+                                                        std::count(m[0].first, m[0].second, '-');
+                                            if (deltaMap.insert({offset, delta}).second) {
+                                                order.push_back(offset);
+                                            } else {
+                                                deltaMap[offset] += delta;
+                                            }
+                                        }
+                                        // Check if every target's accumulated delta is zero.
+                                        const bool allZero = std::ranges::all_of(
+                                            deltaMap,
+                                            [](const auto& it) { return it.second == 0; });
+                                        if (!allZero) {
+                                            for (const auto& off : order) {
+                                                copyloopMap.push_back(off);
+                                                copyloopMap.push_back(deltaMap[off]);
+                                            }
+                                            return std::string(order.size(), 'P') + "C";
+                                        }
+                                        // When all deltas are zero, drop the P instructions and
+                                        // only clear.
+                                        return std::string("C");
+                                    } else {
+                                        return std::string(whole);
+                                    }
+                                });
 
             if constexpr (!Term)
                 regexReplaceInplace(
