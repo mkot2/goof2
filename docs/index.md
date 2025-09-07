@@ -11,7 +11,7 @@ GitHub Pages in your repository settings, selecting the `docs` folder on the
 goof2 is licensed under the GNU Affero General Public License v3.0 or later.
 It includes third-party components under separate licenses:
 
-- cpp-terminal (MIT), see `../cpp-terminal/LICENSE`
+- linenoise-ng (BSD-2-Clause), see `../linenoise-ng/LICENSE`
 - simde (MIT and CC0), see `../simde/COPYING`
 
 ## Platform Notes

@@ -117,7 +117,7 @@ endif()
 add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang>:-pipe>)
 add_compile_options($<$<AND:$<CONFIG:Debug>,$<CXX_COMPILER_ID:GNU,Clang>>:-gsplit-dwarf>)
 
-#Stub warnings target required by cpp - terminal
+#Stub warnings target used by subprojects
 add_library(Warnings INTERFACE)
 add_library(Warnings::Warnings ALIAS Warnings)
 
@@ -128,52 +128,25 @@ target_compile_options(Warnings INTERFACE
 #Disable building tests, examples, docs, and install rules for submodules
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-if(GOOF2_ENABLE_REPL)
-    set(CPPTERMINAL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CPPTERMINAL_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-    set(CPPTERMINAL_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
-    set(CPPTERMINAL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-endif()
 
 if(GOOF2_ENABLE_REPL)
-    set(CPP_TERMINAL_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cpp-terminal)
-
-    # Try vendored submodule first
-    if(IS_DIRECTORY ${CPP_TERMINAL_SOURCE_DIR} AND EXISTS ${CPP_TERMINAL_SOURCE_DIR}/CMakeLists.txt)
-        # Apply our local patch script to the vendored source before configuring it
-        execute_process(
-            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/patch-cpp-terminal-winternl.cmake
-            WORKING_DIRECTORY ${CPP_TERMINAL_SOURCE_DIR}
-        )
-        add_subdirectory(${CPP_TERMINAL_SOURCE_DIR} _deps/cpp-terminal-build)
-        set(HAVE_CPP_TERMINAL TRUE)
+    set(LINENOISE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/linenoise-ng)
+    if(IS_DIRECTORY ${LINENOISE_SOURCE_DIR} AND EXISTS ${LINENOISE_SOURCE_DIR}/CMakeLists.txt)
+        add_subdirectory(${LINENOISE_SOURCE_DIR} _deps/linenoise-ng-build)
     else()
-        # Fallback: fetch via Git when available, otherwise download archive URL
-        set(CPP_TERMINAL_COMMIT a5c1d2619c96ae609357a7109076000b05ad006c)
-        if(GIT_PROGRAM)
-        FetchContent_Declare(cpp-terminal
-            GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
-            GIT_TAG ${CPP_TERMINAL_COMMIT}
+        set(LINENOISE_COMMIT 4754bee2d8eb3c4511e6ac87cac62255b2011e2f)
+        FetchContent_Declare(linenoise
+            GIT_REPOSITORY https://github.com/arangodb/linenoise-ng
+            GIT_TAG ${LINENOISE_COMMIT}
             GIT_SHALLOW TRUE
-            PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/patch-cpp-terminal-winternl.cmake
         )
-        else()
-            # Use zip archive to avoid requiring Git; apply patch via a CMake script
-            FetchContent_Declare(cpp-terminal
-                URL https://github.com/jupyter-xeus/cpp-terminal/archive/${CPP_TERMINAL_COMMIT}.zip
-                URL_HASH SHA256=SKIP
-                PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/patch-cpp-terminal-winternl.cmake
-            )
-        endif()
-        FetchContent_MakeAvailable(cpp-terminal)
+        FetchContent_MakeAvailable(linenoise)
+        set(LINENOISE_SOURCE_DIR ${linenoise_SOURCE_DIR})
     endif()
-    # cpp-terminal triggers some warnings that can become build errors when
-    # projects compile with -Werror. Silence the specific warnings about ignored
-    # return values and unused variables so that enabling -Werror does not break
-    # the build.
-    target_compile_options(cpp-terminal PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang>:-Wno-unknown-pragmas -Wno-unused-result -Wno-unused-variable -Wno-unused-but-set-variable>
-    )
+    if(TARGET linenoise)
+        set_property(TARGET linenoise PROPERTY UNITY_BUILD OFF)
+        target_compile_options(linenoise PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-fpermissive>)
+    endif()
 endif()
 
 set(SIMDE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/simde)
@@ -197,6 +170,29 @@ else()
     endif()
     FetchContent_MakeAvailable(simde)
     set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
+endif()
+
+set(XXHASH_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/xxhash)
+if(IS_DIRECTORY ${XXHASH_SOURCE_DIR} AND EXISTS ${XXHASH_SOURCE_DIR}/xxhash.h)
+    add_library(xxhash INTERFACE)
+    target_include_directories(xxhash INTERFACE ${XXHASH_SOURCE_DIR})
+else()
+    set(XXHASH_COMMIT bab7e27f4c6ae4efbb83dd99ae8a554423571635)
+    if(GIT_PROGRAM)
+        FetchContent_Declare(xxhash
+            GIT_REPOSITORY https://github.com/Cyan4973/xxHash
+            GIT_TAG ${XXHASH_COMMIT}
+            GIT_SHALLOW TRUE
+        )
+    else()
+        FetchContent_Declare(xxhash
+            URL https://github.com/Cyan4973/xxHash/archive/${XXHASH_COMMIT}.zip
+            URL_HASH SHA256=SKIP
+        )
+    endif()
+    FetchContent_Populate(xxhash)
+    add_library(xxhash INTERFACE)
+    target_include_directories(xxhash INTERFACE ${xxhash_SOURCE_DIR})
 endif()
 
 set(PCH_HEADER include/pch.hxx)
@@ -241,7 +237,8 @@ target_link_libraries(goof2 PRIVATE
     $<BUILD_INTERFACE:Warnings>
 )
 if(GOOF2_ENABLE_REPL)
-    target_link_libraries(goof2 PRIVATE cpp-terminal::cpp-terminal)
+    target_link_libraries(goof2 PRIVATE linenoise)
+    target_include_directories(goof2 PRIVATE ${LINENOISE_SOURCE_DIR}/include)
     if (WIN32)
         # Needed for CommandLineToArgvW on MinGW/Windows builds
         target_link_libraries(goof2 PRIVATE shell32)

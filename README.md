@@ -86,8 +86,7 @@ Add `--profile` to measure execution time and instruction count:
 ```
 
 Select a memory allocation strategy with `-mm <contiguous|fibonacci|paged|os>`. If omitted,
-the VM chooses a model heuristically. In the interactive REPL, press `F8` to cycle through
-the available models.
+the VM chooses a model heuristically.
 
 ## Instruction cache
 
@@ -107,12 +106,12 @@ The virtual machine grows its cell tape using several strategies:
   memory facilities. This model is used only when such APIs are available
   and otherwise falls back to the contiguous model.
 
-Use the `-mm` flag or the `F8` REPL shortcut to select a model explicitly.
+Use the `-mm` flag to select a model explicitly.
 
 ## License
 
 This project is licensed under the terms of the GNU Affero General Public
 License v3.0 or later. It includes third-party components under separate licenses:
-- cpp-terminal (MIT), included via git submodule; see `cpp-terminal/LICENSE`
+- linenoise-ng (BSD-2-Clause), included via git submodule; see `linenoise-ng/LICENSE`
 - simde (MIT and CC0), included via git submodule; see `simde/COPYING`
 

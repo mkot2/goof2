@@ -16,10 +16,9 @@
 #include <string_view>
 #include <vector>
 
+#include "ansi.hxx"
 #include "vm.hxx"
 #ifdef GOOF2_ENABLE_REPL
-#include "cpp-terminal/color.hpp"
-#include "cpp-terminal/style.hpp"
 #include "repl.hxx"
 #endif
 
@@ -333,25 +332,21 @@ int main(int argc, char* argv[]) {
                    0};
     const bool profile = opts.profile;
     if (cfg.tapeSize == 0) {
-        std::cout << Term::color_fg(Term::Color::Name::Red)
-                  << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+        std::cout << ansi::red << "ERROR:" << ansi::reset
                   << " Tape size must be positive; using default 30000" << std::endl;
         cfg.tapeSize = 30000;
     }
     const std::size_t widthBytes = static_cast<std::size_t>(cfg.cellWidth / 8);
     if (widthBytes == 0 || cfg.tapeSize > (GOOF2_TAPE_MAX_BYTES / widthBytes)) {
-        std::cout << Term::color_fg(Term::Color::Name::Red)
-                  << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+        std::cout << ansi::red << "ERROR:" << ansi::reset
                   << " Requested tape exceeds maximum allowed size ("
                   << (GOOF2_TAPE_MAX_BYTES >> 20) << " MiB)" << std::endl;
         return 1;
     }
     std::size_t requiredMem = cfg.tapeSize * widthBytes;
     if (requiredMem > GOOF2_TAPE_WARN_BYTES) {
-        std::cout << Term::color_fg(Term::Color::Name::Yellow)
-                  << "WARNING:" << Term::color_fg(Term::Color::Name::Default)
-                  << " Tape allocation ~" << (requiredMem >> 20) << " MiB may exceed system memory"
-                  << std::endl;
+        std::cout << ansi::yellow << "WARNING:" << ansi::reset << " Tape allocation ~"
+                  << (requiredMem >> 20) << " MiB may exceed system memory" << std::endl;
     }
     if (help) {
         printHelp(argv[0]);
@@ -390,8 +385,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
             default:
-                std::cout << Term::color_fg(Term::Color::Name::Red)
-                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                std::cout << ansi::red << "ERROR:" << ansi::reset
                           << " Unsupported cell width; use 8,16,32,64" << std::endl;
                 return 1;
         }
@@ -403,9 +397,7 @@ int main(int argc, char* argv[]) {
         {
             std::string err;
             if (!readBfFileCompacted(filename, code, err)) {
-                std::cout << Term::color_fg(Term::Color::Name::Red)
-                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default) << ' ' << err
-                          << std::endl;
+                std::cout << ansi::red << "ERROR:" << ansi::reset << ' ' << err << std::endl;
                 return 1;
             }
         }
@@ -441,8 +433,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
             default:
-                std::cout << Term::color_fg(Term::Color::Name::Red)
-                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                std::cout << ansi::red << "ERROR:" << ansi::reset
                           << " Unsupported cell width; use 8,16,32,64" << std::endl;
                 return 1;
         }
@@ -477,8 +468,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
             default:
-                std::cout << Term::color_fg(Term::Color::Name::Red)
-                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                std::cout << ansi::red << "ERROR:" << ansi::reset
                           << " Unsupported cell width; use 8,16,32,64" << std::endl;
                 return 1;
         }
