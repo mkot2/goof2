@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_UNITY_BUILD ON)
+set(CMAKE_UNITY_BUILD_BATCH_SIZE 16)
 
 # Use a compiler cache if available to speed up rebuilds
 # Prefer sccache (great on Windows/macOS/Linux), then fall back to ccache/clcache
