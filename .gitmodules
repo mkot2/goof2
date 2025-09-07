@@ -1,6 +1,6 @@
-[submodule "cpp-terminal"]
-        path = cpp-terminal
-        url = https://github.com/jupyter-xeus/cpp-terminal
+[submodule "linenoise-ng"]
+        path = linenoise-ng
+        url = https://github.com/arangodb/linenoise-ng
 	branch = master
 [submodule "simde"]
         path = simde
