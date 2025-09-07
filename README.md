@@ -88,6 +88,26 @@ Add `--profile` to measure execution time and instruction count:
 Select a memory allocation strategy with `-mm <contiguous|fibonacci|paged|os>`. If omitted,
 the VM chooses a model heuristically.
 
+### Examples
+
+Run a Brainfuck program from a file:
+
+```sh
+./goof2 -i hello.bf
+```
+
+Execute inline code and collect profiling data:
+
+```sh
+./goof2 -e ',.' --profile
+```
+
+Use 16-bit cells with the paged memory model:
+
+```sh
+./goof2 -i program.bf --cw 16 -mm paged
+```
+
 ## Instruction cache
 
 Compiled programs are cached in memory to speed up repeated executions. The cache reserves
