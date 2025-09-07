@@ -660,7 +660,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
         scanloopMap.reserve(code.size() / 2);
-        std::vector<bool> scanloopClrMap;
+        std::vector<uint8_t> scanloopClrMap;
         scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
@@ -707,7 +707,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                             std::move(rep), [&, clrFlag, step = std::abs(count)]() {
                                 if (step > 0) {
                                     scanloopMap.push_back(step);
-                                    scanloopClrMap.push_back(clrFlag);
+                                    scanloopClrMap.push_back(static_cast<uint8_t>(clrFlag));
                                 }
                             }};
                     });
@@ -994,7 +994,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 case insType::SCN_LFT: {
                     MOVEOFFSET();
                     const auto step = scanloopMap[scanloopCounter];
-                    const bool clr = scanloopClrMap[scanloopCounter++];
+                    const bool clr = scanloopClrMap[scanloopCounter++] != 0;
                     emit(op == insType::SCN_RGT ? (clr ? insType::SCN_CLR_RGT : insType::SCN_RGT)
                                                 : (clr ? insType::SCN_CLR_LFT : insType::SCN_LFT),
                          instruction{nullptr, step, 0, 0});
