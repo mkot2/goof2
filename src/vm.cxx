@@ -342,7 +342,7 @@ static inline int compressMask16(int m) {
 }
 
 template <typename CellT>
-static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
+static inline size_t simdScan0FwdAvx2(const CellT* p, const CellT* end) {
     const CellT* x = p;
     constexpr unsigned Bytes = sizeof(CellT);
     if constexpr (Bytes > 8) {
@@ -352,30 +352,6 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
         }
         return (size_t)(end - p);
     } else {
-        if (runtimeHasAvx512()) {
-            constexpr unsigned LANES512 = 64 / Bytes;
-            while (((uintptr_t)x & 63u) && x < end) {
-                if (*x == 0) return (size_t)(x - p);
-                ++x;
-            }
-            const simde__m512i vz512 = simde_mm512_setzero_si512();
-            for (; x + LANES512 <= end; x += LANES512) {
-                simde__m512i v = simde_mm512_loadu_si512((const void*)x);
-                simde__mmask64 m;
-                if constexpr (Bytes == 1)
-                    m = simde_mm512_cmpeq_epi8_mask(v, vz512);
-                else if constexpr (Bytes == 2)
-                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
-                else if constexpr (Bytes == 4)
-                    m = simde_mm512_cmpeq_epi32_mask(v, vz512);
-                else
-                    m = simde_mm512_cmpeq_epi64_mask(v, vz512);
-                if (m) {
-                    unsigned idx = tzcnt64((unsigned long long)m);
-                    return (size_t)((x - p) + idx);
-                }
-            }
-        }
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)x & 31u) && x < end) {
             if (*x == 0) return (size_t)(x - p);
@@ -406,6 +382,52 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
         return (size_t)(end - p);
     }
 }
+
+template <typename CellT>
+static inline size_t simdScan0FwdAvx512(const CellT* p, const CellT* end) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        return (size_t)(end - p);
+    } else {
+        constexpr unsigned LANES512 = 64 / Bytes;
+        while (((uintptr_t)x & 63u) && x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        const simde__m512i vz512 = simde_mm512_setzero_si512();
+        for (; x + LANES512 <= end; x += LANES512) {
+            simde__m512i v = simde_mm512_loadu_si512((const void*)x);
+            simde__mmask64 m;
+            if constexpr (Bytes == 1)
+                m = simde_mm512_cmpeq_epi8_mask(v, vz512);
+            else if constexpr (Bytes == 2)
+                m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+            else if constexpr (Bytes == 4)
+                m = simde_mm512_cmpeq_epi32_mask(v, vz512);
+            else
+                m = simde_mm512_cmpeq_epi64_mask(v, vz512);
+            if (m) {
+                unsigned idx = tzcnt64((unsigned long long)m);
+                return (size_t)((x - p) + idx);
+            }
+        }
+        return simdScan0FwdAvx2<CellT>(x, end);
+    }
+}
+
+template <typename CellT>
+using SimdScan0Fwd = size_t (*)(const CellT*, const CellT*);
+
+static const bool hasAvx512 = runtimeHasAvx512();
+
+template <typename CellT>
+static SimdScan0Fwd<CellT> simdScan0FwdFn =
+    hasAvx512 ? simdScan0FwdAvx512<CellT> : simdScan0FwdAvx2<CellT>;
 
 /*** step == 1 backward scan: last zero in [base,p], return distance back ***/
 template <typename CellT>
@@ -1427,7 +1449,7 @@ _SCN_RGT: {
         CellT* const end = cellBase + cells.size();
         size_t off;
         if (step == 1) {
-            off = simdScan0Fwd<CellT>(cell, end);
+            off = simdScan0FwdFn<CellT>(cell, end);
         } else if (step == 2) {
             unsigned phase = static_cast<unsigned>(cell - cellBase) & 1u;
             if (phase == 0)
@@ -1617,7 +1639,7 @@ _SCN_CLR_RGT: {
     if (step == 1) {
         for (;;) {
             CellT* end = cellBase + cells.size();
-            size_t off = simdScan0Fwd<CellT>(cell, end);
+            size_t off = simdScan0FwdFn<CellT>(cell, end);
             if (off == 0) {
                 LOOP();
             }
