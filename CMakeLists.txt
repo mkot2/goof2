@@ -33,6 +33,7 @@ if(NOT (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" OR MSVC))
 endif()
 
 include(FetchContent)
+find_program(GIT_PROGRAM NAMES git git.exe QUIET)
 
 #Link the C++ runtime statically on Windows to avoid missing procedure
 #entry point errors when running the prebuilt executable.
@@ -87,16 +88,27 @@ if(GOOF2_ENABLE_REPL)
     set(CPP_TERMINAL_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cpp-terminal)
 
     # Try vendored submodule first
-    if(EXISTS ${CPP_TERMINAL_SOURCE_DIR}/CMakeLists.txt)
+    if(IS_DIRECTORY ${CPP_TERMINAL_SOURCE_DIR} AND EXISTS ${CPP_TERMINAL_SOURCE_DIR}/CMakeLists.txt)
         add_subdirectory(${CPP_TERMINAL_SOURCE_DIR} _deps/cpp-terminal-build)
         set(HAVE_CPP_TERMINAL TRUE)
     else()
-        FetchContent_Declare(cpp-terminal
-            GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
-            GIT_TAG a5c1d2619c96ae609357a7109076000b05ad006c
-            GIT_SHALLOW TRUE
-            PATCH_COMMAND git apply --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/cpp-terminal-winternl.patch
-        )
+        # Fallback: fetch via Git when available, otherwise download archive URL
+        set(CPP_TERMINAL_COMMIT a5c1d2619c96ae609357a7109076000b05ad006c)
+        if(GIT_PROGRAM)
+            FetchContent_Declare(cpp-terminal
+                GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
+                GIT_TAG ${CPP_TERMINAL_COMMIT}
+                GIT_SHALLOW TRUE
+                PATCH_COMMAND ${GIT_PROGRAM} apply --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/cpp-terminal-winternl.patch
+            )
+        else()
+            # Use zip archive to avoid requiring Git; apply patch via a CMake script
+            FetchContent_Declare(cpp-terminal
+                URL https://github.com/jupyter-xeus/cpp-terminal/archive/${CPP_TERMINAL_COMMIT}.zip
+                URL_HASH SHA256=SKIP
+                PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/patch-cpp-terminal-winternl.cmake
+            )
+        endif()
         FetchContent_MakeAvailable(cpp-terminal)
     endif()
     # cpp-terminal triggers some warnings that can become build errors when
@@ -112,11 +124,20 @@ set(SIMDE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/simde)
 if(IS_DIRECTORY ${SIMDE_SOURCE_DIR})
     set(SIMDE_INCLUDE_DIR ${SIMDE_SOURCE_DIR})
 else()
-    FetchContent_Declare(simde
-        GIT_REPOSITORY https://github.com/simd-everywhere/simde
-        GIT_TAG 9fc78ccbc7b8abee42d43ec99311c171ee8b1904
-        GIT_SHALLOW TRUE
-    )
+    set(SIMDE_COMMIT 9fc78ccbc7b8abee42d43ec99311c171ee8b1904)
+    if(GIT_PROGRAM)
+        FetchContent_Declare(simde
+            GIT_REPOSITORY https://github.com/simd-everywhere/simde
+            GIT_TAG ${SIMDE_COMMIT}
+            GIT_SHALLOW TRUE
+        )
+    else()
+        # Download archive to avoid requiring Git
+        FetchContent_Declare(simde
+            URL https://github.com/simd-everywhere/simde/archive/${SIMDE_COMMIT}.zip
+            URL_HASH SHA256=SKIP
+        )
+    endif()
     FetchContent_GetProperties(simde)
     if(NOT simde_POPULATED)
         FetchContent_Populate(simde)

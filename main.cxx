@@ -164,7 +164,15 @@ int main(int argc, char* argv[]) {
                   << " Tape size must be positive; using default 30000" << std::endl;
         cfg.tapeSize = 30000;
     }
-    std::size_t requiredMem = cfg.tapeSize * (cfg.cellWidth / 8);
+    const std::size_t widthBytes = static_cast<std::size_t>(cfg.cellWidth / 8);
+    if (widthBytes == 0 || cfg.tapeSize > (GOOF2_TAPE_MAX_BYTES / widthBytes)) {
+        std::cout << Term::color_fg(Term::Color::Name::Red)
+                  << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
+                  << " Requested tape exceeds maximum allowed size (" << (GOOF2_TAPE_MAX_BYTES >> 20)
+                  << " MiB)" << std::endl;
+        return 1;
+    }
+    std::size_t requiredMem = cfg.tapeSize * widthBytes;
     if (requiredMem > GOOF2_TAPE_WARN_BYTES) {
         std::cout << Term::color_fg(Term::Color::Name::Yellow)
                   << "WARNING:" << Term::color_fg(Term::Color::Name::Default)
@@ -366,7 +374,13 @@ int main(int argc, char* argv[]) {
         std::cout << "ERROR: Tape size must be positive; using default 30000" << std::endl;
         tapeSize = 30000;
     }
-    std::size_t requiredMem = tapeSize * (cellWidth / 8);
+    const std::size_t widthBytes = static_cast<std::size_t>(cellWidth / 8);
+    if (widthBytes == 0 || tapeSize > (GOOF2_TAPE_MAX_BYTES / widthBytes)) {
+        std::cerr << "ERROR: Requested tape exceeds maximum allowed size ("
+                  << (GOOF2_TAPE_MAX_BYTES >> 20) << " MiB)" << std::endl;
+        return 1;
+    }
+    std::size_t requiredMem = tapeSize * widthBytes;
     if (requiredMem > GOOF2_TAPE_WARN_BYTES) {
         std::cout << "WARNING: Tape allocation ~" << (requiredMem >> 20)
                   << " MiB may exceed system memory" << std::endl;
