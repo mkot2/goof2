@@ -8,8 +8,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_UNITY_BUILD ON)
 set(CMAKE_UNITY_BUILD_BATCH_SIZE 16)
 
-# Use a compiler cache if available to speed up rebuilds
-# Prefer sccache (great on Windows/macOS/Linux), then fall back to ccache/clcache
+#Use a compiler cache if available to speed up rebuilds
+#Prefer sccache(great on Windows / macOS / Linux), then fall back to ccache / clcache
 find_program(SCCACHE_PROGRAM NAMES sccache)
 find_program(CCACHE_PROGRAM NAMES ccache)
 find_program(CLCACHE_PROGRAM NAMES clcache)
@@ -33,8 +33,8 @@ endif()
 
 include(FetchContent)
 
-# Link the C++ runtime statically on Windows to avoid missing procedure
-# entry point errors when running the prebuilt executable.
+#Link the C++ runtime statically on Windows to avoid missing procedure
+#entry point errors when running the prebuilt executable.
 if(MINGW)
     add_link_options(-static)
 endif()
@@ -49,22 +49,22 @@ if(BUILD_COVERAGE
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
 endif()
-# Default to a Release build if no build type is explicitly set.  This keeps
-# binaries small and enables the high-optimization flags defined below.
+#Default to a Release build if no build type is explicitly set.This keeps
+#binaries small and enables the high - optimization flags defined below.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "No build type specified. Defaulting to Release.")
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# Enable multi-processor compilation for MSVC/clang-cl to speed up builds
+#Enable multi - processor compilation for MSVC / clang - cl to speed up builds
 if(MSVC OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
     add_compile_options(/MP)
 endif()
 
-# Use pipes for GCC/Clang to reduce temp file I/O during compilation
+#Use pipes for GCC / Clang to reduce temp file I / O during compilation
 add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang>:-pipe>)
 
-# Stub warnings target required by cpp-terminal
+#Stub warnings target required by cpp - terminal
 add_library(Warnings INTERFACE)
 add_library(Warnings::Warnings ALIAS Warnings)
 
@@ -72,7 +72,7 @@ target_compile_options(Warnings INTERFACE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra>
 )
 
-# Disable building tests, examples, docs, and install rules for submodules
+#Disable building tests, examples, docs, and install rules for submodules
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 if(GOOF2_ENABLE_REPL)
@@ -97,10 +97,10 @@ FetchContent_Declare(simde
 
 if(GOOF2_ENABLE_REPL)
     FetchContent_MakeAvailable(cpp-terminal)
-    # cpp-terminal triggers some warnings that can become build errors
-    # when projects compile with -Werror.  Silence the specific warnings
-    # about ignored return values and unused variables so that enabling
-    # -Werror does not break the build.
+#cpp - terminal triggers some warnings that can become build errors
+#when projects compile with - Werror.Silence the specific warnings
+#about ignored return values and unused variables so that enabling
+#- Werror does not break the build.
     target_compile_options(cpp-terminal PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wno-unused-result -Wno-unused-variable -Wno-unused-but-set-variable>
     )
@@ -182,6 +182,11 @@ install(EXPORT goof2Targets
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
         AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(ltoFlag "-flto=thin")
+    else()
+        set(ltoFlag "-flto")
+    endif()
     target_compile_options(goof2 PRIVATE
         $<$<CONFIG:Release>:-Ofast>
         $<$<CONFIG:Release>:-march=native>
@@ -191,10 +196,10 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
         $<$<CONFIG:Release>:-fno-semantic-interposition>
         $<$<CONFIG:Release>:-ffunction-sections>
         $<$<CONFIG:Release>:-fdata-sections>
-        $<$<CONFIG:Release>:-flto=thin>
+        $<$<CONFIG:Release>:${ltoFlag}>
     )
     target_link_options(goof2 PRIVATE
-        $<$<CONFIG:Release>:-flto=thin>
+        $<$<CONFIG:Release>:${ltoFlag}>
         $<$<CONFIG:Release>:-Wl,--gc-sections>
         $<$<CONFIG:Release>:-s>
     )
