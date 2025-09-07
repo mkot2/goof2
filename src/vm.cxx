@@ -50,9 +50,23 @@ inline std::string processBalanced(std::string_view s, char no1, char no2) {
 }
 
 template <typename Callback>
-inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb) {
+inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb,
+                                std::function<size_t(const std::smatch&)> estimate = {}) {
     std::string result;
-    result.reserve(str.size());
+    if (estimate) {
+        ptrdiff_t predicted = static_cast<ptrdiff_t>(str.size());
+        auto b = str.cbegin();
+        auto e = str.cend();
+        std::smatch m;
+        while (std::regex_search(b, e, m, re)) {
+            predicted += static_cast<ptrdiff_t>(estimate(m)) - static_cast<ptrdiff_t>(m.length());
+            b = m[0].second;
+        }
+        if (predicted < 0) predicted = 0;
+        result.reserve(static_cast<size_t>(predicted));
+    } else {
+        result.reserve(str.size());
+    }
     auto begin = str.cbegin();
     auto end = str.cend();
     std::smatch match;
@@ -572,16 +586,20 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         std::vector<bool> scanloopClrMap;
 
         if (optimize) {
-            regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
-                                [](const std::smatch&) { return std::string{}; });
+            regexReplaceInplace(
+                code, goof2::vmRegex::nonInstructionRe,
+                [](const std::smatch&) { return std::string{}; },
+                [](const std::smatch&) { return 0u; });
             regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const std::smatch& what) {
                 const char first = what.str()[0];
                 return (first == '+' || first == '-') ? processBalanced(what.str(), '+', '-')
                                                       : processBalanced(what.str(), '>', '<');
             });
 
-            regexReplaceInplace(code, goof2::vmRegex::clearLoopRe,
-                                [](const std::smatch&) { return std::string("C"); });
+            regexReplaceInplace(
+                code, goof2::vmRegex::clearLoopRe,
+                [](const std::smatch&) { return std::string("C"); },
+                [](const std::smatch&) { return 1u; });
 
             regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
                 const auto current = what.str();
@@ -597,23 +615,29 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     return std::string("L");
             });
 
-            regexReplaceInplace(code, goof2::vmRegex::scanLoopRe, [&](const std::smatch& what) {
-                const auto current = what.str();
-                const auto count =
-                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
-                scanloopMap.push_back(std::abs(count));
-                scanloopClrMap.push_back(false);
-                if (count > 0)
-                    return std::string("R");
-                else
-                    return std::string("L");
-            });
+            regexReplaceInplace(
+                code, goof2::vmRegex::scanLoopRe,
+                [&](const std::smatch& what) {
+                    const auto current = what.str();
+                    const auto count =
+                        std::ranges::count(current, '>') - std::ranges::count(current, '<');
+                    scanloopMap.push_back(std::abs(count));
+                    scanloopClrMap.push_back(false);
+                    if (count > 0)
+                        return std::string("R");
+                    else
+                        return std::string("L");
+                },
+                [](const std::smatch&) { return 1u; });
 
-            regexReplaceInplace(code, goof2::vmRegex::commaTrimRe,
-                                [](const std::smatch&) { return std::string(","); });
-            regexReplaceInplace(code, goof2::vmRegex::clearThenSetRe, [](const std::smatch& what) {
-                return std::string("S") + what[1].str();
-            });
+            regexReplaceInplace(
+                code, goof2::vmRegex::commaTrimRe,
+                [](const std::smatch&) { return std::string(","); },
+                [](const std::smatch&) { return 1u; });
+            regexReplaceInplace(
+                code, goof2::vmRegex::clearThenSetRe,
+                [](const std::smatch& what) { return std::string("S") + what[1].str(); },
+                [](const std::smatch& what) { return 1u + static_cast<size_t>(what[1].length()); });
 
             regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
                 int offset = 0;
@@ -658,13 +682,19 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             });
 
             if constexpr (!Term)
-                regexReplaceInplace(code, goof2::vmRegex::leadingSetRe,
-                                    [](const std::smatch& what) {
-                                        return what[1].str() + std::string("S") + what[2].str();
-                                    });  // We can't really assume in term
+                regexReplaceInplace(
+                    code, goof2::vmRegex::leadingSetRe,
+                    [](const std::smatch& what) {
+                        return what[1].str() + std::string("S") + what[2].str();
+                    },
+                    [](const std::smatch& what) {
+                        return static_cast<size_t>(what[1].length() + 1 + what[2].length());
+                    });  // We can't really assume in term
 
-            regexReplaceInplace(code, goof2::vmRegex::clearSeqRe,
-                                [](const std::smatch&) { return std::string("C"); });
+            regexReplaceInplace(
+                code, goof2::vmRegex::clearSeqRe,
+                [](const std::smatch&) { return std::string("C"); },
+                [](const std::smatch&) { return 1u; });
         }
 
         std::vector<size_t> braceTable(code.length());
