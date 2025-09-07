@@ -1,12 +1,12 @@
 diff --git a/cpp-terminal/private/terminfo.cpp b/cpp-terminal/private/terminfo.cpp
-index d7c5f39..6943304 100644
+index d7c5f39..3da6ee2 100644
 --- a/cpp-terminal/private/terminfo.cpp
 +++ b/cpp-terminal/private/terminfo.cpp
 @@ -11,6 +11,7 @@
    #pragma warning(push)
    #pragma warning(disable : 4668)
    #include <windows.h>
-+#include <winternl.h>
++  #include <winternl.h>
    #pragma warning(pop)
  #endif
  
