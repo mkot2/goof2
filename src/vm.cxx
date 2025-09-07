@@ -1838,6 +1838,9 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
     size_t predictedSpan = std::max(spanInfo.span, cells.size());
+    if (dynamicSize) {
+        cells.reserve(predictedSpan);
+    }
 
     // Heuristic: choose model based on predicted bytes to keep memory usage low.
     if (dynamicSize && adaptive) {
