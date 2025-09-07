@@ -3,6 +3,7 @@
 # - Tweak upstream CMake to reduce warnings and speed builds (PCH + Unity).
 # This script expects to run with working directory set to the cpp-terminal source dir.
 
+# Skip patching on non-Windows platforms to avoid corrupting sources.
 # On non-Windows platforms the upstream sources build as-is, and attempting to
 # inject Windows-specific headers can corrupt files. Bail out early when not
 # building on Windows to avoid patching mistakes.

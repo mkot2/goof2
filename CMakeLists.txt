@@ -180,7 +180,8 @@ set(SIMDE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/simde)
 if(IS_DIRECTORY ${SIMDE_SOURCE_DIR})
     set(SIMDE_INCLUDE_DIR ${SIMDE_SOURCE_DIR})
 else()
-    set(SIMDE_COMMIT 1dd80a3c29c5b0d5c89458c148de43cfc562d73d)
+    # Pin SIMDe to a known-good release to avoid missing commit errors
+    set(SIMDE_COMMIT 0c26988ef614a078dabf4f35a48681f8f0e14500) # v0.7.4
     if(GIT_PROGRAM)
         FetchContent_Declare(simde
             GIT_REPOSITORY https://github.com/simd-everywhere/simde

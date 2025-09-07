@@ -971,7 +971,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     }
 
     auto insp = instructions.data();
-    [[maybe_unused]] std::unordered_map<size_t, CellT> sparseTape;
+    [[maybe_unused]] std::vector<std::pair<size_t, CellT>> sparseTape;
     [[maybe_unused]] size_t sparseIndex = cellPtr;
     [[maybe_unused]] size_t sparseMaxIndex = 0;
     CellT* __restrict cellBase = cells.data();
@@ -980,7 +980,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     if constexpr (Sparse) {
         for (size_t i = 0; i < cells.size(); ++i) {
             if (cells[i] != 0) {
-                sparseTape[i] = cells[i];
+                sparseTape.emplace_back(i, cells[i]);
                 if (i > sparseMaxIndex) sparseMaxIndex = i;
             }
         }
@@ -1156,9 +1156,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto cellRef = [&](ptrdiff_t off) -> CellT& {
         if constexpr (Sparse) {
             size_t idx = sparseIndex + off;
-            auto& ref = sparseTape[idx];
+            auto it =
+                std::lower_bound(sparseTape.begin(), sparseTape.end(), idx,
+                                 [](const auto& kv, size_t value) { return kv.first < value; });
+            if (it == sparseTape.end() || it->first != idx) {
+                it = sparseTape.insert(it, {idx, 0});
+            }
             if (idx > sparseMaxIndex) sparseMaxIndex = idx;
-            return ref;
+            return it->second;
         } else {
             return *(cell + off);
         }
