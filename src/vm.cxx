@@ -566,10 +566,13 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
         int copyloopCounter = 0;
         std::vector<int> copyloopMap;
+        copyloopMap.reserve(code.size() / 2);
 
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
+        scanloopMap.reserve(code.size() / 2);
         std::vector<bool> scanloopClrMap;
+        scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
             regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
