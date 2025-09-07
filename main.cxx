@@ -23,21 +23,188 @@
 #endif
 
 #ifdef _WIN32
-#ifdef GOOF2_ENABLE_REPL
 #include <windows.h>
-// Enable ANSI escape sequences on Windows terminals
-static void enable_vt_mode() {
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hOut == INVALID_HANDLE_VALUE) return;
-    DWORD mode = 0;
-    if (!GetConsoleMode(hOut, &mode)) return;
-    mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-    SetConsoleMode(hOut, mode);
-}
-#endif
+#else
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace {
+// Cross-platform read-only file mapping and BF compaction
+struct MappedFile {
+    const char* data = nullptr;
+    size_t size = 0;
+#ifdef _WIN32
+    HANDLE hFile = INVALID_HANDLE_VALUE;
+    HANDLE hMap = nullptr;
+#else
+    int fd = -1;
+#endif
+    MappedFile() = default;
+    MappedFile(const MappedFile&) = delete;
+    MappedFile& operator=(const MappedFile&) = delete;
+    MappedFile(MappedFile&& other) noexcept { *this = std::move(other); }
+    MappedFile& operator=(MappedFile&& other) noexcept {
+        if (this != &other) {
+            this->close();
+            data = other.data;
+            size = other.size;
+#ifdef _WIN32
+            hFile = other.hFile;
+            hMap = other.hMap;
+            other.hFile = INVALID_HANDLE_VALUE;
+            other.hMap = nullptr;
+#else
+            fd = other.fd;
+            other.fd = -1;
+#endif
+            other.data = nullptr;
+            other.size = 0;
+        }
+        return *this;
+    }
+    ~MappedFile() { close(); }
+    void close() {
+#ifdef _WIN32
+        if (data) UnmapViewOfFile((LPCVOID)data);
+        if (hMap) CloseHandle(hMap);
+        if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
+#else
+        if (data && size) {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            munmap(const_cast<char*>(data), size);
+        }
+        if (fd >= 0) ::close(fd);
+#endif
+        data = nullptr;
+        size = 0;
+    }
+};
+
+static bool isBfChar(char c) {
+    switch (c) {
+        case '+':
+        case '-':
+        case '>':
+        case '<':
+        case '[':
+        case ']':
+        case '.':
+        case ',':
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool mapFileReadOnly(const std::string& path, MappedFile& mf) {
+#ifdef _WIN32
+    // Use narrow WinAPI for simplicity; CLI passes narrow paths
+    HANDLE file = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER sz{};
+    if (!GetFileSizeEx(file, &sz)) {
+        CloseHandle(file);
+        return false;
+    }
+    if (sz.QuadPart == 0) {
+        mf.hFile = file;
+        mf.hMap = nullptr;
+        mf.data = nullptr;
+        mf.size = 0;
+        return true;
+    }
+    HANDLE map = CreateFileMappingW(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
+    if (!map) {
+        CloseHandle(file);
+        return false;
+    }
+    void* view = MapViewOfFile(map, FILE_MAP_READ, 0, 0, 0);
+    if (!view) {
+        CloseHandle(map);
+        CloseHandle(file);
+        return false;
+    }
+    mf.hFile = file;
+    mf.hMap = map;
+    mf.data = static_cast<const char*>(view);
+    mf.size = static_cast<size_t>(sz.QuadPart);
+    return true;
+#else
+    int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    struct stat st {
+    };
+    if (fstat(fd, &st) != 0) {
+        ::close(fd);
+        return false;
+    }
+    if (st.st_size == 0) {
+        mf.fd = fd;
+        mf.data = nullptr;
+        mf.size = 0;
+        return true;
+    }
+    void* view = mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
+    if (view == MAP_FAILED) {
+        ::close(fd);
+        return false;
+    }
+    mf.fd = fd;
+    mf.data = static_cast<const char*>(view);
+    mf.size = static_cast<size_t>(st.st_size);
+    return true;
+#endif
+}
+
+// Reads and compacts BF source (keeps only +-<>[],.) using a memory-mapped file when possible.
+// Returns true on success; on error, 'err' is set and 'out' left unchanged.
+static bool readBfFileCompacted(const std::string& filename, std::string& out, std::string& err) {
+    MappedFile mf;
+    if (mapFileReadOnly(filename, mf)) {
+        const char* p = mf.data;
+        const size_t n = mf.size;
+        if (n == 0 || p == nullptr) {
+            out.clear();
+            return true;
+        }
+        // First pass: count BF ops
+        size_t cnt = 0;
+        for (size_t i = 0; i < n; ++i) cnt += isBfChar(p[i]);
+        std::string compact;
+        compact.resize(cnt);
+        size_t j = 0;
+        for (size_t i = 0; i < n; ++i) {
+            char c = p[i];
+            if (isBfChar(c)) compact[j++] = c;
+        }
+        mf.close();
+        out.swap(compact);
+        return true;
+    }
+    // Fallback: stream and compact
+    std::ifstream in(filename, std::ios::binary);
+    if (!in.is_open()) {
+        err = "File could not be opened";
+        return false;
+    }
+    std::string compact;
+    compact.reserve(1 << 16);
+    char c;
+    while (in.get(c)) {
+        if (isBfChar(c)) compact.push_back(c);
+    }
+    if (!in.eof() && in.fail()) {
+        err = "Error while reading file";
+        return false;
+    }
+    out.swap(compact);
+    return true;
+}
+
 struct CmdArgs {
     std::string filename;
     std::string evalCode;
@@ -141,7 +308,17 @@ void printHelp(const char* prog) {
 #ifdef GOOF2_ENABLE_REPL
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
-    enable_vt_mode();
+    // Enable ANSI escape sequences on Windows terminals
+    {
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut != INVALID_HANDLE_VALUE) {
+            DWORD mode = 0;
+            if (GetConsoleMode(hOut, &mode)) {
+                mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+                SetConsoleMode(hOut, mode);
+            }
+        }
+    }
 #endif
     CmdArgs opts = parseArgs(argc, argv);
     std::string filename = opts.filename;
@@ -225,19 +402,15 @@ int main(int argc, char* argv[]) {
     }
     if (!filename.empty()) {
         size_t cellPtr = 0;
-        std::ifstream in(filename, std::ios::binary);
-        if (!in.is_open()) {
-            std::cout << Term::color_fg(Term::Color::Name::Red)
-                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " File could not be opened" << std::endl;
-            return 1;
-        }
-        std::string code((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (!in && !in.eof()) {
-            std::cout << Term::color_fg(Term::Color::Name::Red)
-                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " Error while reading file" << std::endl;
-            return 1;
+        std::string code;
+        {
+            std::string err;
+            if (!readBfFileCompacted(filename, code, err)) {
+                std::cout << Term::color_fg(Term::Color::Name::Red)
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default) << ' '
+                          << err << std::endl;
+                return 1;
+            }
         }
         goof2::ProfileInfo profileInfo;
         goof2::ProfileInfo* profPtr = profile ? &profileInfo : nullptr;
@@ -398,14 +571,9 @@ int main(int argc, char* argv[]) {
     if (!evalCode.empty()) {
         code = evalCode;
     } else {
-        std::ifstream in(filename, std::ios::binary);
-        if (!in.is_open()) {
-            std::cerr << "ERROR: File could not be opened";
-            return 1;
-        }
-        code.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (!in && !in.eof()) {
-            std::cerr << "ERROR: Error while reading file";
+        std::string err;
+        if (!readBfFileCompacted(filename, code, err)) {
+            std::cerr << "ERROR: " << err;
             return 1;
         }
     }

@@ -99,7 +99,7 @@ if(GOOF2_ENABLE_REPL)
                 GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
                 GIT_TAG ${CPP_TERMINAL_COMMIT}
                 GIT_SHALLOW TRUE
-                PATCH_COMMAND ${GIT_PROGRAM} apply --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/cpp-terminal-winternl.patch
+                PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/patch-cpp-terminal-winternl.cmake
             )
         else()
             # Use zip archive to avoid requiring Git; apply patch via a CMake script
@@ -138,10 +138,7 @@ else()
             URL_HASH SHA256=SKIP
         )
     endif()
-    FetchContent_GetProperties(simde)
-    if(NOT simde_POPULATED)
-        FetchContent_Populate(simde)
-    endif()
+    FetchContent_MakeAvailable(simde)
     set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 endif()
 
