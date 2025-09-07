@@ -12,6 +12,7 @@ static void run_model(goof2::MemoryModel model, std::size_t expectedSize) {
     std::string code = ">";
     int ret = goof2::execute<uint8_t>(cells, ptr, code, true, 0, true, false, model);
     assert(ret == 0);
+    (void)ret; // silence unused in Release builds when assert() is disabled
     assert(ptr == 1);
     if (expectedSize) assert(cells.size() == expectedSize);
 }

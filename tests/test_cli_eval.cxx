@@ -2,8 +2,10 @@
 // user-provided strings, which allowed command injection. Instead of invoking
 // a shell we spawn the process directly and capture its output via a pipe.
 
+#include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstdio>
 #include <sstream>
 #include <string>
 #include <vector>

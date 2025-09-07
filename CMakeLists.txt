@@ -7,6 +7,10 @@ if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
 endif()
 project(goof2 LANGUAGES C CXX)
 
+# Suppress noisy warnings originating from third-party CMake projects.
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE BOOL "" FORCE)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
@@ -160,7 +164,16 @@ if(GOOF2_ENABLE_REPL)
     if(TARGET linenoise)
         set_property(TARGET linenoise PROPERTY UNITY_BUILD OFF)
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-            target_compile_options(linenoise PRIVATE -fno-char8_t)
+            target_compile_options(linenoise PRIVATE
+                -fno-char8_t
+                -Wno-array-bounds
+                -Wno-restrict
+                -Wno-implicit-fallthrough
+                -Wno-stringop-overflow
+                -Wno-unused-parameter
+                -Wno-unused-function
+                -Wno-unused-variable
+            )
         else()
             target_compile_options(linenoise PRIVATE /Zc:char8_t-)
         endif()
@@ -254,7 +267,9 @@ set(PROJECT_SOURCES ${EXEC_SOURCES} ${VM_SOURCES} ${PCH_HEADER})
 add_executable(goof2
     ${EXEC_SOURCES}
 )
-target_precompile_headers(goof2 REUSE_FROM vm)
+# Build a dedicated PCH for the executable to avoid flag-mismatch warnings
+# when the exe uses different compile flags than the vm library.
+target_precompile_headers(goof2 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/${PCH_HEADER}>")
 
 target_link_libraries(goof2 PRIVATE
     vm
