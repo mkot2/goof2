@@ -573,7 +573,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         std::vector<bool> scanloopClrMap;
 
         if (optimize) {
-            code = std::regex_replace(code, goof2::vmRegex::nonInstructionRe, "");
+            regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
+                                [](const std::smatch&) { return std::string{}; });
 
             regexReplaceInplace(code, goof2::vmRegex::addSubSeqRe, [&](const std::smatch& what) {
                 return processBalanced(what.str(), '+', '-');
@@ -582,7 +583,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 return processBalanced(what.str(), '>', '<');
             });
 
-            code = std::regex_replace(code, goof2::vmRegex::clearLoopRe, "C");
+            regexReplaceInplace(code, goof2::vmRegex::clearLoopRe,
+                                [](const std::smatch&) { return std::string("C"); });
 
             regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
                 const auto current = what.str();
@@ -610,8 +612,11 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     return std::string("L");
             });
 
-            code = std::regex_replace(code, goof2::vmRegex::commaTrimRe, ",");
-            code = std::regex_replace(code, goof2::vmRegex::clearThenSetRe, "S$1");
+            regexReplaceInplace(code, goof2::vmRegex::commaTrimRe,
+                                [](const std::smatch&) { return std::string(","); });
+            regexReplaceInplace(code, goof2::vmRegex::clearThenSetRe, [](const std::smatch& what) {
+                return std::string("S") + what[1].str();
+            });
 
             regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
                 int offset = 0;
@@ -656,10 +661,13 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             });
 
             if constexpr (!Term)
-                code = std::regex_replace(code, goof2::vmRegex::leadingSetRe,
-                                          "$1S$2");  // We can't really assume in term
+                regexReplaceInplace(code, goof2::vmRegex::leadingSetRe,
+                                    [](const std::smatch& what) {
+                                        return what[1].str() + std::string("S") + what[2].str();
+                                    });  // We can't really assume in term
 
-            code = std::regex_replace(code, goof2::vmRegex::clearSeqRe, "C");
+            regexReplaceInplace(code, goof2::vmRegex::clearSeqRe,
+                                [](const std::smatch&) { return std::string("C"); });
         }
 
         std::vector<size_t> braceTable(code.length());
