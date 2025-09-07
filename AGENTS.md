@@ -23,6 +23,7 @@
 - Third-party components (included via git submodules):
   - linenoise-ng (BSD-2-Clause), see `linenoise-ng/LICENSE`
   - simde (MIT and CC0), see `simde/COPYING`
+  - xxhash (BSD-2-Clause), see `xxhash/LICENSE`
 
 ## Directory Structure
 - `src/`: core implementation files; organize subdirectories by feature.
