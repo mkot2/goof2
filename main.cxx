@@ -213,6 +213,7 @@ int main(int argc, char* argv[]) {
                           << " Unsupported cell width; use 8,16,32,64" << std::endl;
                 return 1;
         }
+        std::cout.flush();
         return 0;
     }
     if (!filename.empty()) {
@@ -430,6 +431,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "ERROR: Unsupported cell width; use 8,16,32,64" << std::endl;
             return 1;
     }
+    std::cout.flush();
     if (profile) {
         std::cout << "Instructions executed: " << prof.instructions << std::endl;
         std::cout << "Elapsed time: " << prof.seconds << "s" << std::endl;
