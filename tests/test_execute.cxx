@@ -252,6 +252,19 @@ static void test_cache_reuse() {
 }
 
 template <typename CellT>
+static void test_loop_cache_reuse() {
+    goof2::clearLoopCache();
+    std::vector<CellT> cells(3, 0);
+    cells[0] = 2;
+    size_t ptr = 0;
+    run<CellT>("[->+<]>[->+<]", cells, ptr);
+    assert(cells[0] == 0);
+    assert(cells[1] == 0);
+    assert(cells[2] == static_cast<CellT>(2));
+    assert(goof2::getLoopCache().size() == 1);
+}
+
+template <typename CellT>
 static void run_tests() {
     test_loops<CellT>();
     test_io<CellT>();
@@ -265,6 +278,7 @@ static void run_tests() {
     test_unmatched_brackets<CellT>();
     test_mul_cpy<CellT>();
     test_cache_reuse<CellT>();
+    test_loop_cache_reuse<CellT>();
 }
 
 int main() {
