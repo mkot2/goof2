@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
+# Newer CMake versions (>=3.30) dropped compatibility with <3.5. Some third-party
+# dependencies still declare an older cmake_minimum_required. Allow configuring them
+# without editing their CMakeLists by setting a minimum policy compatibility.
+if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
 project(goof2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -132,6 +138,9 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 if(GOOF2_ENABLE_REPL)
     set(LINENOISE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/linenoise-ng)
     if(IS_DIRECTORY ${LINENOISE_SOURCE_DIR} AND EXISTS ${LINENOISE_SOURCE_DIR}/CMakeLists.txt)
+        # Ensure examples/tests in the subproject are not built
+        set(LINENOISE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(LINENOISE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         add_subdirectory(${LINENOISE_SOURCE_DIR} _deps/linenoise-ng-build)
     else()
         set(LINENOISE_COMMIT 4754bee2d8eb3c4511e6ac87cac62255b2011e2f)
@@ -139,6 +148,11 @@ if(GOOF2_ENABLE_REPL)
             GIT_REPOSITORY https://github.com/arangodb/linenoise-ng
             GIT_TAG ${LINENOISE_COMMIT}
             GIT_SHALLOW TRUE
+            CMAKE_ARGS
+                -DBUILD_TESTS=OFF
+                -DBUILD_EXAMPLES=OFF
+                -DLINENOISE_BUILD_EXAMPLES=OFF
+                -DLINENOISE_BUILD_TESTS=OFF
         )
         FetchContent_MakeAvailable(linenoise)
         set(LINENOISE_SOURCE_DIR ${linenoise_SOURCE_DIR})
@@ -178,8 +192,10 @@ endif()
 
 set(XXHASH_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/xxhash)
 if(IS_DIRECTORY ${XXHASH_SOURCE_DIR} AND EXISTS ${XXHASH_SOURCE_DIR}/xxhash.h)
-    add_library(xxhash INTERFACE)
-    target_include_directories(xxhash INTERFACE ${XXHASH_SOURCE_DIR})
+    if(NOT TARGET xxhash)
+        add_library(xxhash INTERFACE)
+        target_include_directories(xxhash INTERFACE ${XXHASH_SOURCE_DIR})
+    endif()
 else()
     set(XXHASH_COMMIT bab7e27f4c6ae4efbb83dd99ae8a554423571635)
     if(GIT_PROGRAM)
@@ -194,9 +210,13 @@ else()
             URL_HASH SHA256=SKIP
         )
     endif()
-    FetchContent_Populate(xxhash)
-    add_library(xxhash INTERFACE)
-    target_include_directories(xxhash INTERFACE ${xxhash_SOURCE_DIR})
+    # Use modern API to avoid CMP0169 deprecation warnings
+    FetchContent_MakeAvailable(xxhash)
+    # Provide a header-only fallback target if the subproject does not define one
+    if(NOT TARGET xxhash)
+        add_library(xxhash INTERFACE)
+        target_include_directories(xxhash INTERFACE ${xxhash_SOURCE_DIR})
+    endif()
 endif()
 
 set(PCH_HEADER include/pch.hxx)

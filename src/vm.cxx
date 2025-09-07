@@ -743,6 +743,12 @@ constexpr std::array<insType, 256> charToOpcode = [] {
     return table;
 }();
 
+namespace {
+thread_local std::vector<int> copyloopMap;
+thread_local std::vector<int> scanloopMap;
+thread_local std::vector<uint8_t> scanloopClrMap;
+}  // namespace
+
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, size_t span, goof2::ProfileInfo* profile,
@@ -787,6 +793,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         std::pmr::vector<int> scanloopMap{&scanMr};
         scanloopMap.reserve(code.size() / 2);
         std::pmr::vector<uint8_t> scanloopClrMap{&scanMr};
+
         scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
@@ -1979,10 +1986,6 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     bool adaptive = (model == MemoryModel::Auto);
     if (adaptive) model = MemoryModel::Contiguous;
     size_t predictedSpan = std::max(spanInfo.span, cells.size());
-    if (dynamicSize) {
-        cells.reserve(predictedSpan);
-    }
-
     // Heuristic: choose model based on predicted bytes to keep memory usage low.
     if (dynamicSize && adaptive) {
         const size_t predictedBytes = predictedSpan * sizeof(CellT);
@@ -1995,6 +1998,10 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
             model = MemoryModel::Paged;
         else if (predictedBytes > (size_t(1) << 20))
             model = MemoryModel::Fibonacci;
+    }
+    if (dynamicSize && !sparse &&
+        (model == MemoryModel::Contiguous || model == MemoryModel::Fibonacci)) {
+        cells.reserve(predictedSpan);
     }
     if (dynamicSize) {
         if (sparse) {
