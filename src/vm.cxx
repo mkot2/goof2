@@ -55,7 +55,8 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     result.reserve(str.size());
     auto begin = str.cbegin();
     const auto end = str.cend();
-    for (std::sregex_iterator it(begin, end, re); it != std::sregex_iterator(); ++it) {
+    using Iter = std::string::const_iterator;
+    for (std::regex_iterator<Iter> it(begin, end, re); it != std::regex_iterator<Iter>(); ++it) {
         const auto& match = *it;
         result.append(begin, match[0].first);
         result += cb(match);
@@ -638,9 +639,10 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                         0) {
                                         std::unordered_map<int, int> deltaMap;
                                         std::vector<int> order;
-                                        for (std::sregex_iterator it(
+                                        using Iter = std::string::const_iterator;
+                                        for (std::regex_iterator<Iter> it(
                                                  subBegin, subEnd, goof2::vmRegex::copyLoopInnerRe);
-                                             it != std::sregex_iterator(); ++it) {
+                                             it != std::regex_iterator<Iter>(); ++it) {
                                             const auto& m = *it;
                                             offset += -std::count(m[0].first, m[0].second, '<') +
                                                       std::count(m[0].first, m[0].second, '>');
