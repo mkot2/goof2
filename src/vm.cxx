@@ -54,36 +54,33 @@ inline std::string processBalanced(std::string_view s, char no1, char no2) {
 template <typename Callback>
 inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb,
                                 std::function<size_t(const SvMatch&)> estimate = {}) {
-    std::vector<SvMatch> matches;
-    ptrdiff_t predicted = static_cast<ptrdiff_t>(str.size());
     std::string_view sv{str};
-    auto begin = sv.cbegin();
-    auto end = sv.cend();
-    SvMatch match;
-    while (std::regex_search(begin, end, match, re)) {
-        if (estimate) {
+    using Iterator = std::string_view::const_iterator;
+    ptrdiff_t predicted = static_cast<ptrdiff_t>(str.size());
+
+    if (estimate) {
+        for (std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end; it != end; ++it) {
             predicted +=
-                static_cast<ptrdiff_t>(estimate(match)) - static_cast<ptrdiff_t>(match.length());
+                static_cast<ptrdiff_t>(estimate(*it)) - static_cast<ptrdiff_t>((*it)[0].length());
         }
-        matches.push_back(match);
-        begin = match[0].second;
+        if (predicted < 0) predicted = 0;
     }
 
     std::string result;
     if (estimate) {
-        if (predicted < 0) predicted = 0;
         result.reserve(static_cast<size_t>(predicted));
     } else {
         result.reserve(str.size());
     }
 
-    auto last = sv.cbegin();
-    for (const auto& m : matches) {
+    Iterator last = sv.begin();
+    for (std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end; it != end; ++it) {
+        const SvMatch& m = *it;
         result.append(last, m[0].first);
         result += cb(m);
         last = m[0].second;
     }
-    result.append(last, sv.cend());
+    result.append(last, sv.end());
     str = std::move(result);
 }
 
