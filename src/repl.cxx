@@ -54,8 +54,18 @@ void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, std::string_vi
         }
     }
 }
+// Keep only the most recent entries to bound memory usage. Older lines are
+// discarded once `maxLogLines` is exceeded.
+constexpr std::size_t maxLogLines = 1024;
 void appendLines(std::vector<std::string>& log, const std::string& text) {
     std::string_view view{text};
+    const std::size_t estimatedLines = std::ranges::count(view, '\n') + 1;
+    if (log.size() + estimatedLines > maxLogLines) {
+        std::size_t excess = log.size() + estimatedLines - maxLogLines;
+        log.erase(log.begin(), log.begin() + excess);
+    }
+    // Reserve to minimize reallocations; trades peak memory for speed.
+    log.reserve(log.size() + estimatedLines);
     std::size_t start = 0;
     while (start < view.size()) {
         std::size_t end = view.find('\n', start);
@@ -70,6 +80,13 @@ void appendLines(std::vector<std::string>& log, const std::string& text) {
 
 void appendInputLines(std::vector<std::string>& log, const std::string& input) {
     std::string_view view{input};
+    const std::size_t estimatedLines = std::ranges::count(view, '\n') + 1;
+    if (log.size() + estimatedLines > maxLogLines) {
+        std::size_t excess = log.size() + estimatedLines - maxLogLines;
+        log.erase(log.begin(), log.begin() + excess);
+    }
+    // Reserve to reduce reallocations; consumes extra memory up front.
+    log.reserve(log.size() + estimatedLines);
     std::size_t start = 0;
     bool first = true;
     while (start < view.size()) {
