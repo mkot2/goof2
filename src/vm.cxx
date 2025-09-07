@@ -728,6 +728,12 @@ constexpr std::array<insType, 256> charToOpcode = [] {
     return table;
 }();
 
+namespace {
+thread_local std::vector<int> copyloopMap;
+thread_local std::vector<int> scanloopMap;
+thread_local std::vector<uint8_t> scanloopClrMap;
+}  // namespace
+
 template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, size_t span, goof2::ProfileInfo* profile,
@@ -744,13 +750,13 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                  &&_SCN_CLR_RGT, &&_SCN_CLR_LFT, &&_END};
 
         int copyloopCounter = 0;
-        std::vector<int> copyloopMap;
+        copyloopMap.clear();
         copyloopMap.reserve(code.size() / 2);
 
         int scanloopCounter = 0;
-        std::vector<int> scanloopMap;
+        scanloopMap.clear();
         scanloopMap.reserve(code.size() / 2);
-        std::vector<uint8_t> scanloopClrMap;
+        scanloopClrMap.clear();
         scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
