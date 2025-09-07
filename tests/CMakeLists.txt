@@ -11,6 +11,7 @@ add_executable(vm_execute_tests
 target_link_libraries(vm_execute_tests PRIVATE
     vm
     Warnings
+    xxhash
 )
 target_precompile_headers(vm_execute_tests REUSE_FROM vm)
 
@@ -24,6 +25,7 @@ add_executable(vm_alloc_fail_tests
 target_link_libraries(vm_alloc_fail_tests PRIVATE
     vm
     Warnings
+    xxhash
 )
 target_precompile_headers(vm_alloc_fail_tests REUSE_FROM vm)
 
@@ -37,6 +39,7 @@ add_executable(vm_memory_model_tests
 target_link_libraries(vm_memory_model_tests PRIVATE
     vm
     Warnings
+    xxhash
 )
 target_precompile_headers(vm_memory_model_tests REUSE_FROM vm)
 
@@ -50,6 +53,7 @@ add_executable(vm_load_file_tests
 target_link_libraries(vm_load_file_tests PRIVATE
     vm
     Warnings
+    xxhash
 )
 target_precompile_headers(vm_load_file_tests REUSE_FROM vm)
 
@@ -78,6 +82,7 @@ if(NOT GOOF2_ENABLE_REPL)
 
     target_link_libraries(vm_cli_eval_tests PRIVATE
         Warnings
+        xxhash
     )
     target_precompile_headers(vm_cli_eval_tests REUSE_FROM vm)
 
