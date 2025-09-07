@@ -116,11 +116,22 @@ static const std::regex clearSeqRe(R"(C{2,})", optimize);
 }  // namespace goof2::vmRegex
 
 #include "simde/x86/avx2.h"
+#include "simde/x86/avx512.h"
 
 #define TZCNT32(x) __builtin_ctz((unsigned)(x))
 #define LZCNT32(x) __builtin_clz((unsigned)(x))
 #define TZCNT64(x) __builtin_ctzll((unsigned long long)(x))
 #define LZCNT64(x) __builtin_clzll((unsigned long long)(x))
+
+static inline bool runtimeHasAvx512() {
+#if defined(SIMDE_ARCH_X86) && !defined(__EMSCRIPTEN__)
+    static int cached = -1;
+    if (cached < 0) cached = __builtin_cpu_supports("avx512f");
+    return cached;
+#else
+    return false;
+#endif
+}
 
 template <unsigned Bytes, unsigned Step>
 struct StrideMask32Table {
@@ -278,6 +289,30 @@ static inline size_t simdScan0Fwd(const CellT* p, const CellT* end) {
         }
         return (size_t)(end - p);
     } else {
+        if (runtimeHasAvx512()) {
+            constexpr unsigned LANES512 = 64 / Bytes;
+            while (((uintptr_t)x & 63u) && x < end) {
+                if (*x == 0) return (size_t)(x - p);
+                ++x;
+            }
+            const simde__m512i vz512 = simde_mm512_setzero_si512();
+            for (; x + LANES512 <= end; x += LANES512) {
+                simde__m512i v = simde_mm512_loadu_si512((const void*)x);
+                simde__mmask64 m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm512_cmpeq_epi8_mask(v, vz512);
+                else if constexpr (Bytes == 2)
+                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                else if constexpr (Bytes == 4)
+                    m = simde_mm512_cmpeq_epi32_mask(v, vz512);
+                else
+                    m = simde_mm512_cmpeq_epi64_mask(v, vz512);
+                if (m) {
+                    unsigned idx = TZCNT64((std::uint64_t)m);
+                    return (size_t)((x - p) + idx);
+                }
+            }
+        }
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)x & 31u) && x < end) {
             if (*x == 0) return (size_t)(x - p);
@@ -370,6 +405,33 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
         }
         return (size_t)(end - p);
     } else {
+        if (runtimeHasAvx512()) {
+            constexpr unsigned LANES512 = 64 / Bytes;
+            while (((uintptr_t)x & 63u) && x < end) {
+                if (phase == 0 && *x == 0) return (size_t)(x - p);
+                ++x;
+                phase = (phase + 1) & Mask;
+            }
+            const simde__m512i vz512 = simde_mm512_setzero_si512();
+            for (; x + LANES512 <= end; x += LANES512) {
+                simde__m512i v = simde_mm512_loadu_si512((const void*)x);
+                simde__mmask64 m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm512_cmpeq_epi8_mask(v, vz512);
+                else if constexpr (Bytes == 2)
+                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                else if constexpr (Bytes == 4)
+                    m = simde_mm512_cmpeq_epi32_mask(v, vz512);
+                else
+                    m = simde_mm512_cmpeq_epi64_mask(v, vz512);
+                m &= strideMask64<Bytes>(Step, phase);
+                if (m) {
+                    unsigned idx = TZCNT64((std::uint64_t)m);
+                    return (size_t)((x - p) + idx);
+                }
+                phase = (phase + LANES512) & Mask;
+            }
+        }
         constexpr unsigned LANES = 32 / Bytes;
         while (((uintptr_t)x & 31u) && x < end) {
             if (phase == 0 && *x == 0) return (size_t)(x - p);
@@ -1250,6 +1312,10 @@ _SCN_RGT: {
         } else {
             // scalar fallback for arbitrary step
             off = step;
+            while (cell + off + step * 3 < end && *(cell + off) != 0 && *(cell + off + step) != 0 &&
+                   *(cell + off + step * 2) != 0 && *(cell + off + step * 3) != 0) {
+                off += step * 4;
+            }
             while (cell + off < end && *(cell + off) != 0) off += step;
         }
 
@@ -1370,6 +1436,11 @@ _SCN_LFT: {
     } else {
         // scalar fallback for arbitrary step
         size_t back = step;
+        while (cell >= cellBase + back + step * 3 && *(cell - back) != 0 &&
+               *(cell - back - step) != 0 && *(cell - back - step * 2) != 0 &&
+               *(cell - back - step * 3) != 0) {
+            back += step * 4;
+        }
         while (cell >= cellBase + back && *(cell - back) != 0) back += step;
         cell -= back;
         if (cell < cellBase) {
