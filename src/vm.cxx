@@ -50,9 +50,23 @@ inline std::string processBalanced(std::string_view s, char no1, char no2) {
 }
 
 template <typename Callback>
-inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb) {
+inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb,
+                                std::function<size_t(const std::smatch&)> estimate = {}) {
     std::string result;
-    result.reserve(str.size());
+    if (estimate) {
+        ptrdiff_t predicted = static_cast<ptrdiff_t>(str.size());
+        auto b = str.cbegin();
+        auto e = str.cend();
+        std::smatch m;
+        while (std::regex_search(b, e, m, re)) {
+            predicted += static_cast<ptrdiff_t>(estimate(m)) - static_cast<ptrdiff_t>(m.length());
+            b = m[0].second;
+        }
+        if (predicted < 0) predicted = 0;
+        result.reserve(static_cast<size_t>(predicted));
+    } else {
+        result.reserve(str.size());
+    }
     auto begin = str.cbegin();
     auto end = str.cend();
     std::smatch match;
@@ -100,19 +114,18 @@ using goof2::MemoryModel;
 
 namespace goof2::vmRegex {
 using namespace std::regex_constants;
-static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize);
-static const std::regex addSubSeqRe(R"([+-]{2,})", optimize);
-static const std::regex ptrSeqRe(R"([><]{2,})", optimize | std::regex::nosubs);
-static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize);
-static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize);
-static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize);
-static const std::regex commaTrimRe(R"([+\-C]+,)", optimize);
+static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize | nosubs);
+static const std::regex balanceSeqRe(R"([+-]{2,}|[><]{2,})", optimize | nosubs);
+static const std::regex clearLoopRe(R"([+-]*(?:\[[+-]+\])+)", optimize | nosubs);
+static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize | nosubs);
+static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize | nosubs);
+static const std::regex commaTrimRe(R"([+\-C]+,)", optimize | nosubs);
 static const std::regex clearThenSetRe(R"(C([+-]+))", optimize);
 static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])",
                                    optimize);
 static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
-static const std::regex copyLoopInnerRe(R"([<>]+[+-]+)", optimize);
-static const std::regex clearSeqRe(R"(C{2,})", optimize);
+static const std::regex copyLoopInnerRe(R"([<>]+[+-]+)", optimize | nosubs);
+static const std::regex clearSeqRe(R"(C{2,})", optimize | nosubs);
 }  // namespace goof2::vmRegex
 
 #include "simde/x86/avx2.h"
@@ -567,22 +580,29 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
         int copyloopCounter = 0;
         std::vector<int> copyloopMap;
+        copyloopMap.reserve(code.size() / 2);
 
         int scanloopCounter = 0;
         std::vector<int> scanloopMap;
+        scanloopMap.reserve(code.size() / 2);
         std::vector<bool> scanloopClrMap;
+        scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
-            code = std::regex_replace(code, goof2::vmRegex::nonInstructionRe, "");
-
-            regexReplaceInplace(code, goof2::vmRegex::addSubSeqRe, [&](const std::smatch& what) {
-                return processBalanced(what.str(), '+', '-');
+            regexReplaceInplace(
+                code, goof2::vmRegex::nonInstructionRe,
+                [](const std::smatch&) { return std::string{}; },
+                [](const std::smatch&) { return 0u; });
+            regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const std::smatch& what) {
+                const char first = what.str()[0];
+                return (first == '+' || first == '-') ? processBalanced(what.str(), '+', '-')
+                                                      : processBalanced(what.str(), '>', '<');
             });
-            regexReplaceInplace(code, goof2::vmRegex::ptrSeqRe, [&](const std::smatch& what) {
-                return processBalanced(what.str(), '>', '<');
-            });
 
-            code = std::regex_replace(code, goof2::vmRegex::clearLoopRe, "C");
+            regexReplaceInplace(
+                code, goof2::vmRegex::clearLoopRe,
+                [](const std::smatch&) { return std::string("C"); },
+                [](const std::smatch&) { return 1u; });
 
             regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
                 const auto current = what.str();
@@ -598,20 +618,29 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     return std::string("L");
             });
 
-            regexReplaceInplace(code, goof2::vmRegex::scanLoopRe, [&](const std::smatch& what) {
-                const auto current = what.str();
-                const auto count =
-                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
-                scanloopMap.push_back(std::abs(count));
-                scanloopClrMap.push_back(false);
-                if (count > 0)
-                    return std::string("R");
-                else
-                    return std::string("L");
-            });
+            regexReplaceInplace(
+                code, goof2::vmRegex::scanLoopRe,
+                [&](const std::smatch& what) {
+                    const auto current = what.str();
+                    const auto count =
+                        std::ranges::count(current, '>') - std::ranges::count(current, '<');
+                    scanloopMap.push_back(std::abs(count));
+                    scanloopClrMap.push_back(false);
+                    if (count > 0)
+                        return std::string("R");
+                    else
+                        return std::string("L");
+                },
+                [](const std::smatch&) { return 1u; });
 
-            code = std::regex_replace(code, goof2::vmRegex::commaTrimRe, ",");
-            code = std::regex_replace(code, goof2::vmRegex::clearThenSetRe, "S$1");
+            regexReplaceInplace(
+                code, goof2::vmRegex::commaTrimRe,
+                [](const std::smatch&) { return std::string(","); },
+                [](const std::smatch&) { return 1u; });
+            regexReplaceInplace(
+                code, goof2::vmRegex::clearThenSetRe,
+                [](const std::smatch& what) { return std::string("S") + what[1].str(); },
+                [](const std::smatch& what) { return 1u + static_cast<size_t>(what[1].length()); });
 
             regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
                 int offset = 0;
@@ -656,10 +685,19 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             });
 
             if constexpr (!Term)
-                code = std::regex_replace(code, goof2::vmRegex::leadingSetRe,
-                                          "$1S$2");  // We can't really assume in term
+                regexReplaceInplace(
+                    code, goof2::vmRegex::leadingSetRe,
+                    [](const std::smatch& what) {
+                        return what[1].str() + std::string("S") + what[2].str();
+                    },
+                    [](const std::smatch& what) {
+                        return static_cast<size_t>(what[1].length() + 1 + what[2].length());
+                    });  // We can't really assume in term
 
-            code = std::regex_replace(code, goof2::vmRegex::clearSeqRe, "C");
+            regexReplaceInplace(
+                code, goof2::vmRegex::clearSeqRe,
+                [](const std::smatch&) { return std::string("C"); },
+                [](const std::smatch&) { return 1u; });
         }
 
         std::vector<size_t> braceTable(code.length());
