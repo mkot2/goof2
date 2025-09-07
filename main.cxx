@@ -352,6 +352,9 @@ int main(int argc, char* argv[]) {
         printHelp(argv[0]);
         return 0;
     }
+    if (cfg.cellWidth != 8) {
+        std::cout << "Active cell width: " << cfg.cellWidth << " bits" << std::endl;
+    }
     if (!evalCode.empty()) {
         size_t cellPtr = 0;
         std::string code = evalCode;
@@ -553,6 +556,9 @@ int main(int argc, char* argv[]) {
     if (filename.empty() && evalCode.empty()) {
         std::cout << "REPL disabled; use -i <file> or -e <code> to run a program" << std::endl;
         return 0;
+    }
+    if (cellWidth != 8) {
+        std::cout << "Active cell width: " << cellWidth << " bits" << std::endl;
     }
     size_t cellPtr = 0;
     std::string code;
