@@ -12,7 +12,7 @@
 #define GOOF2_TAPE_WARN_BYTES (1ull << 30)  // 1 GiB
 // Hard limit to prevent uncontrolled memory allocation from user inputs.
 // Requests exceeding this limit are rejected by the CLI/REPL.
-#define GOOF2_TAPE_MAX_BYTES  (1ull << 31)  // 2 GiB
+#define GOOF2_TAPE_MAX_BYTES (1ull << 31)  // 2 GiB
 
 #if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
 #define GOOF2_HAS_OS_VM 1
@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <list>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -69,7 +70,7 @@ struct ProfileInfo {
 struct CacheEntry {
     std::string source;
     std::vector<instruction> instructions;
-    std::uint64_t lastUsed = 0;
+    std::list<size_t>::iterator usageIter;
     bool sparse = false;
 };
 
