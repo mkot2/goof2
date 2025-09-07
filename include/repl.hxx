@@ -14,8 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "cpp-terminal/color.hpp"
-#include "cpp-terminal/style.hpp"
+#include "ansi.hxx"
 #include "vm.hxx"
 
 struct ReplConfig {
@@ -45,8 +44,8 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
         --lastNonEmpty;
     }
     out << "Memory dump:" << '\n'
-        << Term::Style::Underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |"
-        << Term::Style::Reset << std::endl;
+        << ansi::underline << "row+col |0  |1  |2  |3  |4  |5  |6  |7  |8  |9  |" << ansi::reset
+        << std::endl;
     size_t end = std::max(lastNonEmpty, std::min(cellPtr, cells.size() - 1));
     for (size_t i = 0, row = 0; i <= end; ++i) {
         if (i % 10 == 0) {
@@ -54,12 +53,10 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
             out << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
             row += 10;
         }
-        out << (i == cellPtr ? Term::color_fg(Term::Color::Name::Green)
-                             : Term::color_fg(Term::Color::Name::Default))
-            << +cells[i] << Term::color_fg(Term::Color::Name::Default)
+        out << (i == cellPtr ? ansi::green : ansi::reset) << +cells[i] << ansi::reset
             << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
     }
-    out << Term::Style::Reset << std::endl;
+    out << ansi::reset << std::endl;
 }
 
 template <typename CellT>
@@ -70,14 +67,10 @@ inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::strin
                                     profile);
     switch (ret) {
         case 1:
-            std::cout << Term::color_fg(Term::Color::Name::Red)
-                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " Unmatched close bracket";
+            std::cout << ansi::red << "ERROR:" << ansi::reset << " Unmatched close bracket";
             break;
         case 2:
-            std::cout << Term::color_fg(Term::Color::Name::Red)
-                      << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                      << " Unmatched open bracket";
+            std::cout << ansi::red << "ERROR:" << ansi::reset << " Unmatched open bracket";
             break;
     }
 }

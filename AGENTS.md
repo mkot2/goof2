@@ -21,7 +21,7 @@
 ## Licensing
 - The project is licensed under the GNU Affero General Public License v3.0 or later.
 - Third-party components (included via git submodules):
-  - cpp-terminal (MIT), see `cpp-terminal/LICENSE`
+  - linenoise-ng (BSD-2-Clause), see `linenoise-ng/LICENSE`
   - simde (MIT and CC0), see `simde/COPYING`
 
 ## Directory Structure
@@ -29,6 +29,6 @@
 - `include/`: public headers mirroring the layout of `src/`.
 - `tests/`: unit and fuzz tests following the same structure as `src/`.
 - `docs/`: project documentation.
-- `cpp-terminal/`, `simde/`: third-party submodules; avoid modifying them directly.
+- `linenoise-ng/`, `simde/`: third-party submodules; avoid modifying them directly.
 - `main.cxx`: entry point for the command-line interface.
 - Generated artifacts should reside in the `build/` directory, which is ignored by version control.
