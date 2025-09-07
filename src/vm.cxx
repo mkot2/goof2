@@ -55,11 +55,11 @@ inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback
     result.reserve(str.size());
     auto begin = str.cbegin();
     auto end = str.cend();
-    std::smatch match;
-    while (std::regex_search(begin, end, match, re)) {
-        result.append(begin, match[0].first);
-        result += cb(match);
-        begin = match[0].second;
+    for (std::regex_iterator<std::string::const_iterator> it(begin, end, re), endIt; it != endIt;
+         ++it) {
+        result.append(begin, (*it)[0].first);
+        result += cb(*it);
+        begin = (*it)[0].second;
     }
     result.append(begin, end);
     str = std::move(result);
@@ -573,98 +573,113 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
         if (optimize) {
             regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
-                                [](const std::smatch&) { return std::string{}; });
-            regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const std::smatch& what) {
-                const char first = what.str()[0];
-                return (first == '+' || first == '-') ? processBalanced(what.str(), '+', '-')
-                                                      : processBalanced(what.str(), '>', '<');
-            });
+                                [](const std::match_results<std::string::const_iterator>&) {
+                                    return std::string{};
+                                });
+            regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe,
+                                [&](const std::match_results<std::string::const_iterator>& what) {
+                                    const char first = what.str()[0];
+                                    return (first == '+' || first == '-')
+                                               ? processBalanced(what.str(), '+', '-')
+                                               : processBalanced(what.str(), '>', '<');
+                                });
 
             regexReplaceInplace(code, goof2::vmRegex::clearLoopRe,
-                                [](const std::smatch&) { return std::string("C"); });
+                                [](const std::match_results<std::string::const_iterator>&) {
+                                    return std::string("C");
+                                });
 
-            regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe, [&](const std::smatch& what) {
-                const auto current = what.str();
-                const auto count =
-                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
-                scanloopMap.push_back(std::abs(count));
-                scanloopClrMap.push_back(true);
-                if (count > 0)
-                    return std::string("R");
-                else if (count == 0)
-                    return current;
-                else
-                    return std::string("L");
-            });
+            regexReplaceInplace(code, goof2::vmRegex::scanLoopClrRe,
+                                [&](const std::match_results<std::string::const_iterator>& what) {
+                                    const auto current = what.str();
+                                    const auto count = std::ranges::count(current, '>') -
+                                                       std::ranges::count(current, '<');
+                                    scanloopMap.push_back(std::abs(count));
+                                    scanloopClrMap.push_back(true);
+                                    if (count > 0)
+                                        return std::string("R");
+                                    else if (count == 0)
+                                        return current;
+                                    else
+                                        return std::string("L");
+                                });
 
-            regexReplaceInplace(code, goof2::vmRegex::scanLoopRe, [&](const std::smatch& what) {
-                const auto current = what.str();
-                const auto count =
-                    std::ranges::count(current, '>') - std::ranges::count(current, '<');
-                scanloopMap.push_back(std::abs(count));
-                scanloopClrMap.push_back(false);
-                if (count > 0)
-                    return std::string("R");
-                else
-                    return std::string("L");
-            });
+            regexReplaceInplace(code, goof2::vmRegex::scanLoopRe,
+                                [&](const std::match_results<std::string::const_iterator>& what) {
+                                    const auto current = what.str();
+                                    const auto count = std::ranges::count(current, '>') -
+                                                       std::ranges::count(current, '<');
+                                    scanloopMap.push_back(std::abs(count));
+                                    scanloopClrMap.push_back(false);
+                                    if (count > 0)
+                                        return std::string("R");
+                                    else
+                                        return std::string("L");
+                                });
 
             regexReplaceInplace(code, goof2::vmRegex::commaTrimRe,
-                                [](const std::smatch&) { return std::string(","); });
-            regexReplaceInplace(code, goof2::vmRegex::clearThenSetRe, [](const std::smatch& what) {
-                return std::string("S") + what[1].str();
-            });
+                                [](const std::match_results<std::string::const_iterator>&) {
+                                    return std::string(",");
+                                });
+            regexReplaceInplace(code, goof2::vmRegex::clearThenSetRe,
+                                [](const std::match_results<std::string::const_iterator>& what) {
+                                    return std::string("S") + what[1].str();
+                                });
 
-            regexReplaceInplace(code, goof2::vmRegex::copyLoopRe, [&](const std::smatch& what) {
-                int offset = 0;
-                const std::string whole = what.str();
-                const std::string current = what[1].str() + what[2].str();
+            regexReplaceInplace(
+                code, goof2::vmRegex::copyLoopRe,
+                [&](const std::match_results<std::string::const_iterator>& what) {
+                    int offset = 0;
+                    const std::string whole = what.str();
+                    const std::string current = what[1].str() + what[2].str();
 
-                if (std::count(whole.begin(), whole.end(), '>') -
-                        std::count(whole.begin(), whole.end(), '<') ==
-                    0) {
-                    std::smatch whatL;
-                    auto start = current.cbegin();
-                    auto end = current.cend();
-                    std::unordered_map<int, int> deltaMap;
-                    std::vector<int> order;
-                    while (std::regex_search(start, end, whatL, goof2::vmRegex::copyLoopInnerRe)) {
-                        offset += -std::count(whatL[0].first, whatL[0].second, '<') +
-                                  std::count(whatL[0].first, whatL[0].second, '>');
-                        int delta = std::count(whatL[0].first, whatL[0].second, '+') -
-                                    std::count(whatL[0].first, whatL[0].second, '-');
-                        if (deltaMap.insert({offset, delta}).second) {
-                            order.push_back(offset);
-                        } else {
-                            deltaMap[offset] += delta;
+                    if (std::count(whole.begin(), whole.end(), '>') -
+                            std::count(whole.begin(), whole.end(), '<') ==
+                        0) {
+                        std::unordered_map<int, int> deltaMap;
+                        std::vector<int> order;
+                        for (std::regex_iterator<std::string::const_iterator> it(
+                                 current.cbegin(), current.cend(), goof2::vmRegex::copyLoopInnerRe),
+                             endIt;
+                             it != endIt; ++it) {
+                            offset += -std::count((*it)[0].first, (*it)[0].second, '<') +
+                                      std::count((*it)[0].first, (*it)[0].second, '>');
+                            int delta = std::count((*it)[0].first, (*it)[0].second, '+') -
+                                        std::count((*it)[0].first, (*it)[0].second, '-');
+                            if (deltaMap.insert({offset, delta}).second) {
+                                order.push_back(offset);
+                            } else {
+                                deltaMap[offset] += delta;
+                            }
                         }
-                        start = whatL[0].second;
-                    }
-                    // Check if every target's accumulated delta is zero.
-                    const bool allZero = std::ranges::all_of(
-                        deltaMap, [](const auto& it) { return it.second == 0; });
-                    if (!allZero) {
-                        for (const auto& off : order) {
-                            copyloopMap.push_back(off);
-                            copyloopMap.push_back(deltaMap[off]);
+                        // Check if every target's accumulated delta is zero.
+                        const bool allZero = std::ranges::all_of(
+                            deltaMap, [](const auto& it) { return it.second == 0; });
+                        if (!allZero) {
+                            for (const auto& off : order) {
+                                copyloopMap.push_back(off);
+                                copyloopMap.push_back(deltaMap[off]);
+                            }
+                            return std::string(order.size(), 'P') + "C";
                         }
-                        return std::string(order.size(), 'P') + "C";
+                        // When all deltas are zero, drop the P instructions and only clear.
+                        return std::string("C");
+                    } else {
+                        return whole;
                     }
-                    // When all deltas are zero, drop the P instructions and only clear.
-                    return std::string("C");
-                } else {
-                    return whole;
-                }
-            });
+                });
 
             if constexpr (!Term)
-                regexReplaceInplace(code, goof2::vmRegex::leadingSetRe,
-                                    [](const std::smatch& what) {
-                                        return what[1].str() + std::string("S") + what[2].str();
-                                    });  // We can't really assume in term
+                regexReplaceInplace(
+                    code, goof2::vmRegex::leadingSetRe,
+                    [](const std::match_results<std::string::const_iterator>& what) {
+                        return what[1].str() + std::string("S") + what[2].str();
+                    });  // We can't really assume in term
 
             regexReplaceInplace(code, goof2::vmRegex::clearSeqRe,
-                                [](const std::smatch&) { return std::string("C"); });
+                                [](const std::match_results<std::string::const_iterator>&) {
+                                    return std::string("C");
+                                });
         }
 
         std::vector<size_t> braceTable(code.length());
