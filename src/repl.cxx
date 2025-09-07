@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <deque>
 #include <fstream>
 #include <sstream>
 #include <string_view>
@@ -60,15 +61,13 @@ void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, std::string_vi
 // Keep only the most recent entries to bound memory usage. Older lines are
 // discarded once `maxLogLines` is exceeded.
 constexpr std::size_t maxLogLines = 1024;
-void appendLines(std::vector<std::string>& log, const std::string& text) {
+void appendLines(std::deque<std::string>& log, const std::string& text) {
     std::string_view view{text};
     const std::size_t estimatedLines = std::ranges::count(view, '\n') + 1;
     if (log.size() + estimatedLines > maxLogLines) {
         std::size_t excess = log.size() + estimatedLines - maxLogLines;
         log.erase(log.begin(), log.begin() + excess);
     }
-    // Reserve to minimize reallocations; trades peak memory for speed.
-    log.reserve(log.size() + estimatedLines);
     std::size_t start = 0;
     while (start < view.size()) {
         std::size_t end = view.find('\n', start);
@@ -81,15 +80,13 @@ void appendLines(std::vector<std::string>& log, const std::string& text) {
     }
 }
 
-void appendInputLines(std::vector<std::string>& log, const std::string& input) {
+void appendInputLines(std::deque<std::string>& log, const std::string& input) {
     std::string_view view{input};
     const std::size_t estimatedLines = std::ranges::count(view, '\n') + 1;
     if (log.size() + estimatedLines > maxLogLines) {
         std::size_t excess = log.size() + estimatedLines - maxLogLines;
         log.erase(log.begin(), log.begin() + excess);
     }
-    // Reserve to reduce reallocations; consumes extra memory up front.
-    log.reserve(log.size() + estimatedLines);
     std::size_t start = 0;
     bool first = true;
     while (start < view.size()) {
@@ -114,7 +111,7 @@ enum class MenuState { None, TapeSize, EOFVal, CellWidth, Search };
 enum class Tab { Log, Memory };
 
 template <typename CellT>
-std::string render(Term::Window& scr, const std::vector<std::string>& log,
+std::string render(Term::Window& scr, const std::deque<std::string>& log,
                    const std::vector<std::string>& dump, const std::vector<CellT>& cells,
                    const std::vector<size_t>& changed, const std::vector<size_t>& matches,
                    const std::string& input, size_t cellPtr, CellT cellVal, const ReplConfig& cfg,
@@ -145,10 +142,10 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
 
     const std::size_t inputLines = lines.size();
     const std::size_t logHeight = rows > (4 + inputLines) ? rows - (4 + inputLines) : 0;
-    const std::vector<std::string>& view = (tab == Tab::Log ? log : dump);
-    std::size_t start = view.size() > logHeight ? view.size() - logHeight : 0;
-    for (std::size_t i = 0; i < logHeight && (start + i) < view.size(); ++i) {
-        const std::string& line = view[start + i];
+    const std::size_t viewSize = (tab == Tab::Log ? log.size() : dump.size());
+    std::size_t start = viewSize > logHeight ? viewSize - logHeight : 0;
+    for (std::size_t i = 0; i < logHeight && (start + i) < viewSize; ++i) {
+        const std::string& line = (tab == Tab::Log ? log[start + i] : dump[start + i]);
         std::string padded = pad(line);
         if (backBuffer[i] != padded) {
             scr.print_str(1, 1 + i, padded);
@@ -262,7 +259,7 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
     Term::Screen termSize = Term::screen_size();
     Term::Window scr(termSize);
     bool hasColor = supportsColor();
-    std::vector<std::string> log;
+    std::deque<std::string> log;
     std::vector<std::string> dump;
     std::string input;
     std::vector<std::string> history;
