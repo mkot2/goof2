@@ -12,6 +12,7 @@ target_link_libraries(vm_execute_tests PRIVATE
     vm
     Warnings
 )
+target_precompile_headers(vm_execute_tests REUSE_FROM vm)
 
 add_test(NAME vm_execute_tests COMMAND vm_execute_tests)
 set_tests_properties(vm_execute_tests PROPERTIES TIMEOUT 5)
@@ -24,6 +25,7 @@ target_link_libraries(vm_alloc_fail_tests PRIVATE
     vm
     Warnings
 )
+target_precompile_headers(vm_alloc_fail_tests REUSE_FROM vm)
 
 add_test(NAME vm_alloc_fail_tests COMMAND vm_alloc_fail_tests)
 set_tests_properties(vm_alloc_fail_tests PROPERTIES TIMEOUT 5)
@@ -36,6 +38,7 @@ target_link_libraries(vm_memory_model_tests PRIVATE
     vm
     Warnings
 )
+target_precompile_headers(vm_memory_model_tests REUSE_FROM vm)
 
 add_test(NAME vm_memory_model_tests COMMAND vm_memory_model_tests)
 set_tests_properties(vm_memory_model_tests PROPERTIES TIMEOUT 5)
@@ -48,6 +51,7 @@ target_link_libraries(vm_load_file_tests PRIVATE
     vm
     Warnings
 )
+target_precompile_headers(vm_load_file_tests REUSE_FROM vm)
 
 add_test(NAME vm_load_file_tests COMMAND vm_load_file_tests)
 set_tests_properties(vm_load_file_tests PROPERTIES TIMEOUT 5)
@@ -61,6 +65,7 @@ if(enableFuzz)
         vm
         Warnings
     )
+    target_precompile_headers(vm_execute_fuzz REUSE_FROM vm)
 
     add_test(NAME vm_execute_fuzz COMMAND vm_execute_fuzz)
     set_tests_properties(vm_execute_fuzz PROPERTIES TIMEOUT 2 LABELS fuzz)
@@ -74,6 +79,7 @@ if(NOT GOOF2_ENABLE_REPL)
     target_link_libraries(vm_cli_eval_tests PRIVATE
         Warnings
     )
+    target_precompile_headers(vm_cli_eval_tests REUSE_FROM vm)
 
     target_compile_definitions(vm_cli_eval_tests PRIVATE
         GOOF2_EXE_PATH="$<TARGET_FILE:goof2>"
