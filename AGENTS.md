@@ -29,6 +29,6 @@
 - `include/`: public headers mirroring the layout of `src/`.
 - `tests/`: unit and fuzz tests following the same structure as `src/`.
 - `docs/`: project documentation.
-- `linenoise-ng/`, `simde/`: third-party submodules; avoid modifying them directly.
+- `linenoise-ng/`, `simde/`, `xxhash/`: third-party submodules; avoid modifying them directly.
 - `main.cxx`: entry point for the command-line interface.
 - Generated artifacts should reside in the `build/` directory, which is ignored by version control.

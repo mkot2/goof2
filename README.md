@@ -114,4 +114,4 @@ This project is licensed under the terms of the GNU Affero General Public
 License v3.0 or later. It includes third-party components under separate licenses:
 - linenoise-ng (BSD-2-Clause), included via git submodule; see `linenoise-ng/LICENSE`
 - simde (MIT and CC0), included via git submodule; see `simde/COPYING`
-
+- xxhash
