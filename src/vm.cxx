@@ -26,6 +26,7 @@
 #include <future>
 #include <iostream>
 #include <list>
+#include <memory_resource>
 #include <ranges>
 #include <regex>
 #include <string>
@@ -43,6 +44,26 @@ namespace {
 constexpr std::size_t kCacheExpectedEntries = 64;
 constexpr std::size_t kCacheMaxEntries = 64;
 std::list<size_t> cacheUsage;
+
+struct CountingResource : std::pmr::memory_resource {
+    std::pmr::memory_resource* upstream;
+    std::size_t bytes = 0;
+
+    CountingResource(std::pmr::memory_resource* up = std::pmr::new_delete_resource())
+        : upstream(up) {}
+
+   private:
+    void* do_allocate(std::size_t s, std::size_t align) override {
+        bytes += s;
+        return upstream->allocate(s, align);
+    }
+    void do_deallocate(void* p, std::size_t s, std::size_t align) override {
+        upstream->deallocate(p, s, align);
+    }
+    bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+        return this == &other;
+    }
+};
 }  // namespace
 
 inline int32_t fold(std::string_view code, size_t& i, char match) {
@@ -93,9 +114,9 @@ struct RegexReplacement {
 };
 
 template <typename Callback>
-std::vector<RegexReplacement> regexCollect(const std::string& str, const std::regex& re,
-                                           Callback cb) {
-    std::vector<RegexReplacement> reps;
+std::pmr::vector<RegexReplacement> regexCollect(const std::string& str, const std::regex& re,
+                                                Callback cb, std::pmr::memory_resource* mr) {
+    std::pmr::vector<RegexReplacement> reps{mr};
     // Heuristic: reserve some space to reduce reallocations on dense matches.
     reps.reserve(std::max<size_t>(8, str.size() / 16));
     std::string_view sv{str};
@@ -115,12 +136,6 @@ std::vector<RegexReplacement> regexCollect(const std::string& str, const std::re
 #elif defined(__unix__) || defined(__APPLE__)
 #include <sys/mman.h>
 #include <unistd.h>
-#endif
-
-#if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
-#define GOOF2_HAS_OS_VM 1
-#else
-#define GOOF2_HAS_OS_VM 0
 #endif
 
 #if GOOF2_HAS_OS_VM
@@ -738,6 +753,27 @@ template <typename CellT, bool Dynamic, bool Term, bool Sparse>
 int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                 int eof, MemoryModel model, bool adaptive, size_t span, goof2::ProfileInfo* profile,
                 std::vector<instruction>* cached) {
+    constexpr std::size_t bufSize = 64 * 1024;
+    std::array<std::byte, bufSize> mainBuf{};
+    CountingResource mainCount;
+    std::pmr::monotonic_buffer_resource mainMr(mainBuf.data(), mainBuf.size(), &mainCount);
+
+    std::array<std::byte, bufSize> clearBuf{};
+    CountingResource clearCount;
+    std::pmr::monotonic_buffer_resource clearMr(clearBuf.data(), clearBuf.size(), &clearCount);
+
+    std::array<std::byte, bufSize> scanBuf{};
+    CountingResource scanCount;
+    std::pmr::monotonic_buffer_resource scanMr(scanBuf.data(), scanBuf.size(), &scanCount);
+
+    std::array<std::byte, bufSize> commaBuf{};
+    CountingResource commaCount;
+    std::pmr::monotonic_buffer_resource commaMr(commaBuf.data(), commaBuf.size(), &commaCount);
+
+    std::array<std::byte, bufSize> copyBuf{};
+    CountingResource copyCount;
+    std::pmr::monotonic_buffer_resource copyMr(copyBuf.data(), copyBuf.size(), &copyCount);
+
     std::vector<instruction> localInstructions;
     localInstructions.reserve(code.size());
     auto* instructionsPtr = cached ? cached : &localInstructions;
@@ -750,13 +786,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                  &&_SCN_CLR_RGT, &&_SCN_CLR_LFT, &&_END};
 
         int copyloopCounter = 0;
-        copyloopMap.clear();
+        std::pmr::vector<int> copyloopMap{&copyMr};
         copyloopMap.reserve(code.size() / 2);
 
         int scanloopCounter = 0;
-        scanloopMap.clear();
+        std::pmr::vector<int> scanloopMap{&scanMr};
         scanloopMap.reserve(code.size() / 2);
-        scanloopClrMap.clear();
+        std::pmr::vector<uint8_t> scanloopClrMap{&scanMr};
+
         scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
@@ -780,110 +817,124 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 .get();
 
             const std::string baseCode = code;
-            auto clearFuture = pool.submit([baseCode]() {
-                return regexCollect(baseCode, goof2::vmRegex::clearLoopRe, [](const SvMatch&) {
-                    return std::pair<std::string, std::function<void()>>{std::string("C"), {}};
-                });
+            auto clearFuture = pool.submit([baseCode, &clearMr]() {
+                return regexCollect(
+                    baseCode, goof2::vmRegex::clearLoopRe,
+                    [](const SvMatch&) {
+                        return std::pair<std::string, std::function<void()>>{std::string("C"), {}};
+                    },
+                    &clearMr);
             });
-            auto scanFuture = pool.submit([baseCode, &scanloopMap, &scanloopClrMap]() {
-                std::vector<RegexReplacement> reps;
+            auto scanFuture = pool.submit([baseCode, &scanloopMap, &scanloopClrMap, &scanMr]() {
+                std::pmr::vector<RegexReplacement> reps{&scanMr};
                 auto collect = [&](const std::regex& re, bool clrFlag) {
-                    auto vec = regexCollect(baseCode, re, [&](const SvMatch& what) {
-                        std::string_view current{what[0].first, static_cast<size_t>(what.length())};
-                        const auto count =
-                            std::ranges::count(current, '>') - std::ranges::count(current, '<');
-                        std::string rep;
-                        if (count > 0)
-                            rep = "R";
-                        else if (count == 0)
-                            rep = std::string(current);
-                        else
-                            rep = "L";
-                        return std::pair<std::string, std::function<void()>>{
-                            std::move(rep), [&, clrFlag, step = std::abs(count)]() {
-                                if (step > 0) {
-                                    scanloopMap.push_back(step);
-                                    scanloopClrMap.push_back(static_cast<uint8_t>(clrFlag));
-                                }
-                            }};
-                    });
+                    auto vec = regexCollect(
+                        baseCode, re,
+                        [&](const SvMatch& what) {
+                            std::string_view current{what[0].first,
+                                                     static_cast<size_t>(what.length())};
+                            const auto count =
+                                std::ranges::count(current, '>') - std::ranges::count(current, '<');
+                            std::string rep;
+                            if (count > 0)
+                                rep = "R";
+                            else if (count == 0)
+                                rep = std::string(current);
+                            else
+                                rep = "L";
+                            return std::pair<std::string, std::function<void()>>{
+                                std::move(rep), [&, clrFlag, step = std::abs(count)]() {
+                                    if (step > 0) {
+                                        scanloopMap.push_back(step);
+                                        scanloopClrMap.push_back(static_cast<uint8_t>(clrFlag));
+                                    }
+                                }};
+                        },
+                        &scanMr);
                     reps.insert(reps.end(), vec.begin(), vec.end());
                 };
                 collect(goof2::vmRegex::scanLoopClrRe, true);
                 collect(goof2::vmRegex::scanLoopRe, false);
                 return reps;
             });
-
-            auto commaFuture = pool.submit([baseCode]() {
-                return regexCollect(baseCode, goof2::vmRegex::commaTrimRe, [](const SvMatch&) {
-                    return std::pair<std::string, std::function<void()>>{std::string(","), {}};
-                });
+            auto commaFuture = pool.submit([baseCode, &commaMr]() {
+                return regexCollect(
+                    baseCode, goof2::vmRegex::commaTrimRe,
+                    [](const SvMatch&) {
+                        return std::pair<std::string, std::function<void()>>{std::string(","), {}};
+                    },
+                    &commaMr);
             });
 
             // Compute copy-loop replacements in parallel and aggregate with others.
-            auto copyFuture = pool.submit([baseCode, &copyloopMap]() {
-                return regexCollect(baseCode, goof2::vmRegex::copyLoopRe, [&](const SvMatch& what) {
-                    int offset = 0;
-                    std::string_view whole{what[0].first, static_cast<size_t>(what.length())};
-                    // Only transform when net movement is zero
-                    if (std::ranges::count(whole, '>') - std::ranges::count(whole, '<') != 0) {
-                        return std::pair<std::string, std::function<void()>>{std::string(whole),
-                                                                             {}};
-                    }
-
-                    // Use a non-owning view of the captured inner sequence, avoid temporary string.
-                    std::string_view currentView;
-                    if (what[1].matched) {
-                        currentView =
-                            std::string_view{what[1].first, static_cast<size_t>(what[1].length())};
-                    } else {
-                        currentView =
-                            std::string_view{what[2].first, static_cast<size_t>(what[2].length())};
-                    }
-
-                    SvMatch inner;
-                    auto start = currentView.cbegin();
-                    auto end = currentView.cend();
-                    std::vector<std::pair<int, int>> deltaMap;
-                    while (std::regex_search(start, end, inner, goof2::vmRegex::copyLoopInnerRe)) {
-                        offset += -std::count(inner[0].first, inner[0].second, '<') +
-                                  std::count(inner[0].first, inner[0].second, '>');
-                        int delta = std::count(inner[0].first, inner[0].second, '+') -
-                                    std::count(inner[0].first, inner[0].second, '-');
-                        auto it =
-                            std::find_if(deltaMap.begin(), deltaMap.end(),
-                                         [offset](const auto& p) { return p.first == offset; });
-                        if (it != deltaMap.end()) {
-                            it->second += delta;
-                        } else {
-                            deltaMap.emplace_back(offset, delta);
+            auto copyFuture = pool.submit([baseCode, &copyloopMap, &copyMr]() {
+                return regexCollect(
+                    baseCode, goof2::vmRegex::copyLoopRe,
+                    [&](const SvMatch& what) {
+                        int offset = 0;
+                        std::string_view whole{what[0].first, static_cast<size_t>(what.length())};
+                        // Only transform when net movement is zero
+                        if (std::ranges::count(whole, '>') - std::ranges::count(whole, '<') != 0) {
+                            return std::pair<std::string, std::function<void()>>{std::string(whole),
+                                                                                 {}};
                         }
-                        start = inner[0].second;
-                    }
-                    const bool allZero = std::ranges::all_of(
-                        deltaMap, [](const auto& it) { return it.second == 0; });
-                    if (!allZero) {
-                        std::ranges::sort(deltaMap, [](const auto& a, const auto& b) {
-                            return a.first < b.first;
-                        });
-                        const std::size_t cnt = deltaMap.size();
-                        return std::pair<std::string, std::function<void()>>{
-                            std::string(cnt, 'P') + "C", [&, deltaMap = std::move(deltaMap)]() {
-                                for (const auto& [off, d] : deltaMap) {
-                                    copyloopMap.push_back(off);
-                                    copyloopMap.push_back(d);
-                                }
-                            }};
-                    }
-                    return std::pair<std::string, std::function<void()>>{std::string("C"), {}};
-                });
+
+                        // Use a non-owning view of the captured inner sequence, avoid temporary
+                        // string.
+                        std::string_view currentView;
+                        if (what[1].matched) {
+                            currentView = std::string_view{what[1].first,
+                                                           static_cast<size_t>(what[1].length())};
+                        } else {
+                            currentView = std::string_view{what[2].first,
+                                                           static_cast<size_t>(what[2].length())};
+                        }
+
+                        SvMatch inner;
+                        auto start = currentView.cbegin();
+                        auto end = currentView.cend();
+                        std::pmr::vector<std::pair<int, int>> deltaMap{&copyMr};
+                        while (
+                            std::regex_search(start, end, inner, goof2::vmRegex::copyLoopInnerRe)) {
+                            offset += -std::count(inner[0].first, inner[0].second, '<') +
+                                      std::count(inner[0].first, inner[0].second, '>');
+                            int delta = std::count(inner[0].first, inner[0].second, '+') -
+                                        std::count(inner[0].first, inner[0].second, '-');
+                            auto it =
+                                std::find_if(deltaMap.begin(), deltaMap.end(),
+                                             [offset](const auto& p) { return p.first == offset; });
+                            if (it != deltaMap.end()) {
+                                it->second += delta;
+                            } else {
+                                deltaMap.emplace_back(offset, delta);
+                            }
+                            start = inner[0].second;
+                        }
+                        const bool allZero = std::ranges::all_of(
+                            deltaMap, [](const auto& it) { return it.second == 0; });
+                        if (!allZero) {
+                            std::ranges::sort(deltaMap, [](const auto& a, const auto& b) {
+                                return a.first < b.first;
+                            });
+                            const std::size_t cnt = deltaMap.size();
+                            return std::pair<std::string, std::function<void()>>{
+                                std::string(cnt, 'P') + "C", [&, deltaMap = std::move(deltaMap)]() {
+                                    for (const auto& [off, d] : deltaMap) {
+                                        copyloopMap.push_back(off);
+                                        copyloopMap.push_back(d);
+                                    }
+                                }};
+                        }
+                        return std::pair<std::string, std::function<void()>>{std::string("C"), {}};
+                    },
+                    &copyMr);
             });
 
             auto clearReps = clearFuture.get();
             auto scanReps = scanFuture.get();
             auto commaReps = commaFuture.get();
             auto copyReps = copyFuture.get();
-            std::vector<RegexReplacement> allReps;
+            std::pmr::vector<RegexReplacement> allReps{&mainMr};
             allReps.reserve(clearReps.size() + scanReps.size() + commaReps.size() +
                             copyReps.size());
             allReps.insert(allReps.end(), clearReps.begin(), clearReps.end());
@@ -936,9 +987,10 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             // (C-sequence collapse handled in clearPassRe)
         }
 
-        std::vector<size_t> braceTable(code.length());
+        std::pmr::vector<size_t> braceTable(&mainMr);
+        braceTable.resize(code.length());
         {
-            std::vector<size_t> stack;
+            std::pmr::vector<size_t> stack(&mainMr);
             for (size_t i = 0; i < code.length(); ++i) {
                 const char ch = code[i];
                 if (ch == '[') {
@@ -953,7 +1005,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             }
             if (!stack.empty()) return 2;
         }
-        std::vector<size_t> braceInst(code.length());
+        std::pmr::vector<size_t> braceInst(&mainMr);
+        braceInst.resize(code.length());
         int16_t offset = 0;
         bool set = false;
         ptrdiff_t compilePos = 0, compileMin = 0, compileMax = 0;
@@ -1110,6 +1163,10 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         for (auto& inst : instructions) {
             inst.jump = jtable[static_cast<size_t>(inst.op)];
         }
+    }
+    if (profile) {
+        profile->heapBytes += mainCount.bytes + clearCount.bytes + scanCount.bytes +
+                              commaCount.bytes + copyCount.bytes;
     }
 
     auto insp = instructions.data();

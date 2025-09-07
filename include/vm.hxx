@@ -65,6 +65,7 @@ struct ProfileInfo {
     std::uint64_t instructions = 0;
     double seconds = 0.0;
     std::vector<std::uint64_t> loopCounts{};
+    std::uint64_t heapBytes = 0;
 };
 
 struct CacheEntry {

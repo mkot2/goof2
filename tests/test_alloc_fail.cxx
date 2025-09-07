@@ -12,12 +12,6 @@
 #include <sys/mman.h>
 #endif
 
-#if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
-#define GOOF2_HAS_OS_VM 1
-#else
-#define GOOF2_HAS_OS_VM 0
-#endif
-
 #if GOOF2_HAS_OS_VM
 static void* (*real_alloc)(size_t) = goof2::os_alloc;
 
