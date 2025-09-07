@@ -137,23 +137,15 @@ int main() {
             }
             std::terminate();
         });
-        goof2::ProfileInfo profile;
         try {
             goof2::execute<uint8_t>(cells, ptr, code, true, 0, true, false,
-                                    goof2::MemoryModel::Auto, &profile);
+                                    goof2::MemoryModel::Auto, nullptr);
         } catch (...) {
         }
         done = true;
         watchdogThread.join();
         std::cin.rdbuf(cinBuf);
         std::cout.rdbuf(coutBuf);
-        std::ofstream covFile("coverage.jsonl", std::ios::app);
-        covFile << "{\"program\":\"" << code << "\",\"coverage\":[";
-        for (size_t j = 0; j < profile.loopCounts.size(); ++j) {
-            if (j) covFile << ',';
-            covFile << profile.loopCounts[j];
-        }
-        covFile << "]}\n";
     }
     return 0;
 }
