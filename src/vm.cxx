@@ -30,7 +30,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 using SvMatch = std::match_results<std::string_view::const_iterator>;
@@ -178,8 +178,12 @@ static const std::regex clearPassRe(R"((C([+-]+))|C{2,})", optimize);
 // Safe count-zero helpers using C++20 <bit> utilities
 static inline unsigned tzcnt32(unsigned x) { return static_cast<unsigned>(std::countr_zero(x)); }
 static inline unsigned lzcnt32(unsigned x) { return static_cast<unsigned>(std::countl_zero(x)); }
-static inline unsigned tzcnt64(unsigned long long x) { return static_cast<unsigned>(std::countr_zero(x)); }
-static inline unsigned lzcnt64(unsigned long long x) { return static_cast<unsigned>(std::countl_zero(x)); }
+static inline unsigned tzcnt64(unsigned long long x) {
+    return static_cast<unsigned>(std::countr_zero(x));
+}
+static inline unsigned lzcnt64(unsigned long long x) {
+    return static_cast<unsigned>(std::countl_zero(x));
+}
 
 static inline bool runtimeHasAvx512() {
 #if defined(SIMDE_ARCH_X86) && !defined(__EMSCRIPTEN__)
@@ -634,9 +638,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         scanloopClrMap.reserve(code.size() / 2);
 
         if (optimize) {
-            regexReplaceInplace(
-                code, goof2::vmRegex::nonInstructionRe,
-                [](const SvMatch&) { return std::string{}; });
+            regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
+                                [](const SvMatch&) { return std::string{}; });
             regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe, [&](const SvMatch& what) {
                 std::string_view current{what[0].first, static_cast<size_t>(what.length())};
                 const char first = current[0];
@@ -644,8 +647,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                                                       : processBalanced(current, '>', '<');
             });
 
-            regexReplaceInplace(
-                code, goof2::vmRegex::clearLoopRe, [](const SvMatch&) { return std::string("C"); });
+            regexReplaceInplace(code, goof2::vmRegex::clearLoopRe,
+                                [](const SvMatch&) { return std::string("C"); });
 
             const std::string baseCode = code;
             auto scanFuture = std::async(std::launch::async, [baseCode, &scanloopMap,
@@ -691,15 +694,18 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     std::string_view whole{what[0].first, static_cast<size_t>(what.length())};
                     // Only transform when net movement is zero
                     if (std::ranges::count(whole, '>') - std::ranges::count(whole, '<') != 0) {
-                        return std::pair<std::string, std::function<void()>>{std::string(whole), {}};
+                        return std::pair<std::string, std::function<void()>>{std::string(whole),
+                                                                             {}};
                     }
 
                     // Use a non-owning view of the captured inner sequence, avoid temporary string.
                     std::string_view currentView;
                     if (what[1].matched) {
-                        currentView = std::string_view{what[1].first, static_cast<size_t>(what[1].length())};
+                        currentView =
+                            std::string_view{what[1].first, static_cast<size_t>(what[1].length())};
                     } else {
-                        currentView = std::string_view{what[2].first, static_cast<size_t>(what[2].length())};
+                        currentView =
+                            std::string_view{what[2].first, static_cast<size_t>(what[2].length())};
                     }
 
                     SvMatch inner;
@@ -724,8 +730,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     if (!allZero) {
                         const std::size_t cnt = order.size();
                         return std::pair<std::string, std::function<void()>>{
-                            std::string(cnt, 'P') + "C",
-                            [&, order = std::move(order), deltaMap]() {
+                            std::string(cnt, 'P') + "C", [&, order = std::move(order), deltaMap]() {
                                 for (const auto& off : order) {
                                     copyloopMap.push_back(off);
                                     copyloopMap.push_back(deltaMap.at(off));
@@ -735,7 +740,6 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     return std::pair<std::string, std::function<void()>>{std::string("C"), {}};
                 });
             });
-
 
             auto scanReps = scanFuture.get();
             auto commaReps = commaFuture.get();
@@ -751,7 +755,8 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 const size_t rlen = r.end - r.start;
                 bool changed = true;
                 if (rlen == r.text.size()) {
-                    changed = !std::equal(code.begin() + r.start, code.begin() + r.end, r.text.begin());
+                    changed =
+                        !std::equal(code.begin() + r.start, code.begin() + r.end, r.text.begin());
                 }
                 if (changed) {
                     code.replace(r.start, rlen, r.text);
@@ -760,29 +765,25 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             }
 
             // Single-pass clear transforms: C([+-]+) -> S[+-]+ and C{2,} -> C
-            regexReplaceInplace(
-                code, goof2::vmRegex::clearPassRe,
-                [](const SvMatch& what) {
-                    if (what[2].matched) {
-                        std::string result{"S"};
-                        result.append(what[2].first, what[2].second);
-                        return result;
-                    }
-                    return std::string("C");
-                });
+            regexReplaceInplace(code, goof2::vmRegex::clearPassRe, [](const SvMatch& what) {
+                if (what[2].matched) {
+                    std::string result{"S"};
+                    result.append(what[2].first, what[2].second);
+                    return result;
+                }
+                return std::string("C");
+            });
 
             // (copy-loop handled in the aggregated, parallel stage above)
 
             if constexpr (!Term)
-                regexReplaceInplace(
-                    code, goof2::vmRegex::leadingSetRe,
-                    [](const SvMatch& what) {
-                        std::string result;
-                        result.append(what[1].first, what[1].second);
-                        result += 'S';
-                        result.append(what[2].first, what[2].second);
-                        return result;
-                    });  // We can't really assume in term
+                regexReplaceInplace(code, goof2::vmRegex::leadingSetRe, [](const SvMatch& what) {
+                    std::string result;
+                    result.append(what[1].first, what[1].second);
+                    result += 'S';
+                    result.append(what[2].first, what[2].second);
+                    return result;
+                });  // We can't really assume in term
 
             // (C-sequence collapse handled in clearPassRe)
         }
@@ -964,7 +965,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     }
 
     auto insp = instructions.data();
-    [[maybe_unused]] std::unordered_map<size_t, CellT> sparseTape;
+    [[maybe_unused]] std::vector<std::pair<size_t, CellT>> sparseTape;
     [[maybe_unused]] size_t sparseIndex = cellPtr;
     [[maybe_unused]] size_t sparseMaxIndex = 0;
     CellT* __restrict cellBase = cells.data();
@@ -973,7 +974,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     if constexpr (Sparse) {
         for (size_t i = 0; i < cells.size(); ++i) {
             if (cells[i] != 0) {
-                sparseTape[i] = cells[i];
+                sparseTape.emplace_back(i, cells[i]);
                 if (i > sparseMaxIndex) sparseMaxIndex = i;
             }
         }
@@ -1149,9 +1150,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     auto cellRef = [&](ptrdiff_t off) -> CellT& {
         if constexpr (Sparse) {
             size_t idx = sparseIndex + off;
-            auto& ref = sparseTape[idx];
+            auto it =
+                std::lower_bound(sparseTape.begin(), sparseTape.end(), idx,
+                                 [](const auto& kv, size_t value) { return kv.first < value; });
+            if (it == sparseTape.end() || it->first != idx) {
+                it = sparseTape.insert(it, {idx, 0});
+            }
             if (idx > sparseMaxIndex) sparseMaxIndex = idx;
-            return ref;
+            return it->second;
         } else {
             return *(cell + off);
         }

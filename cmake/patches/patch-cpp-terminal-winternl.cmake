@@ -3,6 +3,12 @@
 # - Tweak upstream CMake to reduce warnings and speed builds (PCH + Unity).
 # This script expects to run with working directory set to the cpp-terminal source dir.
 
+# Skip patching on non-Windows platforms to avoid corrupting sources.
+if(NOT WIN32)
+  message(STATUS "cpp-terminal patch: skipping (non-Windows platform)")
+  return()
+endif()
+
 set(_file "cpp-terminal/private/terminfo.cpp")
 if(EXISTS "${_file}")
   file(READ "${_file}" _contents)
