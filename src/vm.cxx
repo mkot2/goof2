@@ -13,6 +13,9 @@
 
 #include "vm.hxx"
 
+#define XXH_INLINE_ALL
+#include <xxhash.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -1111,11 +1114,32 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     if (compilePos < compileMin) compileMin = compilePos;
                     break;
                 }
-                case insType::JMP_ZER:
+                case insType::JMP_ZER: {
                     MOVEOFFSET();
-                    braceInst[i] = instructions.size();
-                    emit(insType::JMP_ZER, instruction{nullptr, 0, 0, 0});
+                    const size_t end = braceTable[i];
+                    std::string_view loopSrc(&code[i], end - i + 1);
+                    auto& lc = goof2::getLoopCache();
+                    uint64_t hash = XXH3_64bits(loopSrc.data(), loopSrc.size());
+                    auto it = lc.find(hash);
+                    if (it != lc.end()) {
+                        instructions.insert(instructions.end(), it->second.begin(),
+                                            it->second.end());
+                        for (char ch : loopSrc) {
+                            if (ch == '>') {
+                                ++compilePos;
+                                if (compilePos > compileMax) compileMax = compilePos;
+                            } else if (ch == '<') {
+                                --compilePos;
+                                if (compilePos < compileMin) compileMin = compilePos;
+                            }
+                        }
+                        i = end;
+                    } else {
+                        braceInst[i] = instructions.size();
+                        emit(insType::JMP_ZER, instruction{nullptr, 0, 0, 0});
+                    }
                     break;
+                }
                 case insType::JMP_NOT_ZER: {
                     MOVEOFFSET();
                     const size_t startCode = braceTable[i];
@@ -1123,6 +1147,13 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     const int sizeminstart = instructions.size() - startInst;
                     instructions[startInst].data = sizeminstart;
                     emit(insType::JMP_NOT_ZER, instruction{nullptr, sizeminstart, 0, 0});
+                    std::string_view loopSrc(&code[startCode], i - startCode + 1);
+                    uint64_t hash = XXH3_64bits(loopSrc.data(), loopSrc.size());
+                    auto& lc = goof2::getLoopCache();
+                    if (lc.find(hash) == lc.end()) {
+                        lc.emplace(hash, std::vector<instruction>(instructions.begin() + startInst,
+                                                                  instructions.end()));
+                    }
                     break;
                 }
                 case insType::PUT_CHR:

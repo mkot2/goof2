@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
-# Newer CMake versions (>=3.30) dropped compatibility with <3.5. Some third-party
-# dependencies still declare an older cmake_minimum_required. Allow configuring them
-# without editing their CMakeLists by setting a minimum policy compatibility.
+#Newer CMake versions(>= 3.30) dropped compatibility with < 3.5. Some third - party
+#dependencies still declare an older cmake_minimum_required.Allow configuring them
+#without editing their CMakeLists by setting a minimum policy compatibility.
 if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 endif()
@@ -18,10 +18,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_UNITY_BUILD ON)
 set(CMAKE_UNITY_BUILD_BATCH_SIZE 16)
 
-# On Windows, Unity builds can create objects with >65k sections.
-# - MSVC/clang-cl: support big objects via /bigobj.
-# - MinGW (GNU/Clang with GNU frontend): GNU binutils often cannot link big-obj,
-#   so prefer disabling Unity to avoid exceeding section limits.
+#On Windows, Unity builds can create objects with> 65k sections.
+#- MSVC / clang - cl : support big objects via / bigobj.
+#- MinGW(GNU / Clang with GNU frontend) : GNU binutils often cannot link big - obj,
+#so prefer disabling Unity to avoid exceeding section limits.
 if(WIN32)
     if(MSVC OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
         add_compile_options(/bigobj)
@@ -51,19 +51,19 @@ elseif(CLCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CLCACHE_PROGRAM}")
 endif()
 
-# Allow GCC/Clang cross‑platform. On Windows: default MinGW (GCC), allow clang-cl; disallow MSVC.
+#Allow GCC / Clang cross‑platform.On Windows : default MinGW(GCC), allow clang - cl; disallow MSVC.
 if(WIN32)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         message(FATAL_ERROR "MSVC (cl.exe) is not supported. Use MinGW (GCC) or clang-cl.")
     endif()
-    # clang-cl specific setup (Clang with MSVC frontend)
+#clang - cl specific setup(Clang with MSVC frontend)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-        # Prefer static MSVC runtime to avoid redistributable dependency
+#Prefer static MSVC runtime to avoid redistributable dependency
         if(POLICY CMP0091)
             cmake_policy(SET CMP0091 NEW)
         endif()
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-        # Prefer lld-link when available
+#Prefer lld - link when available
         find_program(LLD_LINK_EXE NAMES lld-link lld-link.exe)
         if(LLD_LINK_EXE)
             message(STATUS "Using lld-link: ${LLD_LINK_EXE}")
@@ -82,11 +82,11 @@ find_program(GIT_PROGRAM NAMES git git.exe QUIET)
 #Link the C++ runtime statically on Windows to avoid missing procedure
 #entry point errors when running the prebuilt executable.
 if(MINGW)
-    # Prefer static libstdc++/libgcc in Release; avoid fully static linking
-    # which can produce invalid images with some binutils versions.
+#Prefer static libstdc++ / libgcc in Release; avoid fully static linking
+#which can produce invalid images with some binutils versions.
     add_link_options($<$<CONFIG:Release>:-static-libgcc> $<$<CONFIG:Release>:-static-libstdc++>)
-    # Ensure AR/RANLIB use GCC wrappers so LTO plugin is available and add
-    # an index on creation with the 's' flag.
+#Ensure AR / RANLIB use GCC wrappers so LTO plugin is available and add
+#an index on creation with the 's' flag.
     if(CMAKE_CXX_COMPILER_AR)
         set(CMAKE_AR "${CMAKE_CXX_COMPILER_AR}" CACHE FILEPATH "" FORCE)
     endif()
@@ -116,14 +116,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# Enable multi-processor compilation and faster Debug PDB handling on MSVC/clang-cl
+#Enable multi - processor compilation and faster Debug PDB handling on MSVC / clang - cl
 if(MSVC OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
-    # Compile in parallel and allow concurrent PDB writes; prefer fastlink for Debug
+#Compile in parallel and allow concurrent PDB writes; prefer fastlink for Debug
     add_compile_options(/MP $<$<CONFIG:Debug>:/FS /Z7>)
     add_link_options($<$<CONFIG:Debug>:/DEBUG:FASTLINK>)
 endif()
 
-# Use pipes and split DWARF for GCC/Clang to reduce I/O and speed links in Debug
+#Use pipes and split DWARF for GCC / Clang to reduce I / O and speed links in Debug
 add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang>:-pipe>)
 add_compile_options($<$<AND:$<CONFIG:Debug>,$<CXX_COMPILER_ID:GNU,Clang>>:-gsplit-dwarf>)
 
@@ -142,7 +142,7 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 if(GOOF2_ENABLE_REPL)
     set(LINENOISE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/linenoise-ng)
     if(IS_DIRECTORY ${LINENOISE_SOURCE_DIR} AND EXISTS ${LINENOISE_SOURCE_DIR}/CMakeLists.txt)
-        # Ensure examples/tests in the subproject are not built
+#Ensure examples / tests in the subproject are not built
         set(LINENOISE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
         set(LINENOISE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         add_subdirectory(${LINENOISE_SOURCE_DIR} _deps/linenoise-ng-build)
@@ -184,7 +184,7 @@ set(SIMDE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/simde)
 if(IS_DIRECTORY ${SIMDE_SOURCE_DIR})
     set(SIMDE_INCLUDE_DIR ${SIMDE_SOURCE_DIR})
 else()
-    # Pin SIMDe to a known-good release to avoid missing commit errors
+#Pin SIMDe to a known - good release to avoid missing commit errors
     set(SIMDE_COMMIT 0c26988ef614a078dabf4f35a48681f8f0e14500) # v0.7.4
     if(GIT_PROGRAM)
         FetchContent_Declare(simde
@@ -193,7 +193,7 @@ else()
             GIT_SHALLOW TRUE
         )
     else()
-        # Download archive to avoid requiring Git
+#Download archive to avoid requiring Git
         FetchContent_Declare(simde
             URL https://github.com/simd-everywhere/simde/archive/${SIMDE_COMMIT}.zip
             URL_HASH SHA256=SKIP
@@ -223,9 +223,9 @@ else()
             URL_HASH SHA256=SKIP
         )
     endif()
-    # Use modern API to avoid CMP0169 deprecation warnings
+#Use modern API to avoid CMP0169 deprecation warnings
     FetchContent_MakeAvailable(xxhash)
-    # Provide a header-only fallback target if the subproject does not define one
+#Provide a header - only fallback target if the subproject does not define one
     if(NOT TARGET xxhash)
         add_library(xxhash INTERFACE)
         target_include_directories(xxhash INTERFACE ${xxhash_SOURCE_DIR})
@@ -235,6 +235,7 @@ endif()
 set(PCH_HEADER include/pch.hxx)
 set(VM_SOURCES
     src/vm.cxx
+    src/loop_cache.cxx
     include/vm.hxx
 )
 
@@ -246,6 +247,7 @@ target_include_directories(vm
         $<INSTALL_INTERFACE:include/goof2>
     PRIVATE
         ${SIMDE_INCLUDE_DIR}
+        ${xxhash_SOURCE_DIR}
 )
 target_link_libraries(vm PRIVATE $<BUILD_INTERFACE:Warnings>)
 target_compile_options(vm PRIVATE
@@ -279,7 +281,7 @@ if(GOOF2_ENABLE_REPL)
     target_link_libraries(goof2 PRIVATE linenoise)
     target_include_directories(goof2 PRIVATE ${LINENOISE_SOURCE_DIR}/include)
     if (WIN32)
-        # Needed for CommandLineToArgvW on MinGW/Windows builds
+#Needed for CommandLineToArgvW on MinGW / Windows builds
         target_link_libraries(goof2 PRIVATE shell32)
     endif()
     target_compile_definitions(goof2 PRIVATE GOOF2_ENABLE_REPL)
