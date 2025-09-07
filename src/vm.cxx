@@ -30,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -711,29 +712,34 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     SvMatch inner;
                     auto start = currentView.cbegin();
                     auto end = currentView.cend();
-                    std::unordered_map<int, int> deltaMap;
-                    std::vector<int> order;
+                    std::vector<std::pair<int, int>> deltaMap;
                     while (std::regex_search(start, end, inner, goof2::vmRegex::copyLoopInnerRe)) {
                         offset += -std::count(inner[0].first, inner[0].second, '<') +
                                   std::count(inner[0].first, inner[0].second, '>');
                         int delta = std::count(inner[0].first, inner[0].second, '+') -
                                     std::count(inner[0].first, inner[0].second, '-');
-                        if (deltaMap.insert({offset, delta}).second) {
-                            order.push_back(offset);
+                        auto it =
+                            std::find_if(deltaMap.begin(), deltaMap.end(),
+                                         [offset](const auto& p) { return p.first == offset; });
+                        if (it != deltaMap.end()) {
+                            it->second += delta;
                         } else {
-                            deltaMap[offset] += delta;
+                            deltaMap.emplace_back(offset, delta);
                         }
                         start = inner[0].second;
                     }
                     const bool allZero = std::ranges::all_of(
                         deltaMap, [](const auto& it) { return it.second == 0; });
                     if (!allZero) {
-                        const std::size_t cnt = order.size();
+                        std::ranges::sort(deltaMap, [](const auto& a, const auto& b) {
+                            return a.first < b.first;
+                        });
+                        const std::size_t cnt = deltaMap.size();
                         return std::pair<std::string, std::function<void()>>{
-                            std::string(cnt, 'P') + "C", [&, order = std::move(order), deltaMap]() {
-                                for (const auto& off : order) {
+                            std::string(cnt, 'P') + "C", [&, deltaMap = std::move(deltaMap)]() {
+                                for (const auto& [off, d] : deltaMap) {
                                     copyloopMap.push_back(off);
-                                    copyloopMap.push_back(deltaMap.at(off));
+                                    copyloopMap.push_back(d);
                                 }
                             }};
                     }

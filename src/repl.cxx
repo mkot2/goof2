@@ -13,6 +13,7 @@
 #include <fstream>
 #include <sstream>
 #include <string_view>
+#include <vector>
 
 #include "cpp-terminal/color.hpp"
 #include "cpp-terminal/cursor.hpp"
@@ -27,6 +28,7 @@
 #include "vm.hxx"
 
 namespace {
+std::vector<std::string> backBuffer;
 bool supportsColor() {
     using Term::Terminfo;
     return Terminfo::get(Terminfo::Bool::ControlSequences) &&
@@ -54,8 +56,18 @@ void highlightBf(Term::Window& scr, std::size_t x, std::size_t y, std::string_vi
         }
     }
 }
+// Keep only the most recent entries to bound memory usage. Older lines are
+// discarded once `maxLogLines` is exceeded.
+constexpr std::size_t maxLogLines = 1024;
 void appendLines(std::vector<std::string>& log, const std::string& text) {
     std::string_view view{text};
+    const std::size_t estimatedLines = std::ranges::count(view, '\n') + 1;
+    if (log.size() + estimatedLines > maxLogLines) {
+        std::size_t excess = log.size() + estimatedLines - maxLogLines;
+        log.erase(log.begin(), log.begin() + excess);
+    }
+    // Reserve to minimize reallocations; trades peak memory for speed.
+    log.reserve(log.size() + estimatedLines);
     std::size_t start = 0;
     while (start < view.size()) {
         std::size_t end = view.find('\n', start);
@@ -70,6 +82,13 @@ void appendLines(std::vector<std::string>& log, const std::string& text) {
 
 void appendInputLines(std::vector<std::string>& log, const std::string& input) {
     std::string_view view{input};
+    const std::size_t estimatedLines = std::ranges::count(view, '\n') + 1;
+    if (log.size() + estimatedLines > maxLogLines) {
+        std::size_t excess = log.size() + estimatedLines - maxLogLines;
+        log.erase(log.begin(), log.begin() + excess);
+    }
+    // Reserve to reduce reallocations; consumes extra memory up front.
+    log.reserve(log.size() + estimatedLines);
     std::size_t start = 0;
     bool first = true;
     while (start < view.size()) {
@@ -101,7 +120,15 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
                    MenuState menuState, Tab tab, const std::string& menuInput) {
     const std::size_t rows = scr.rows();
     const std::size_t cols = scr.columns();
-    scr.clear();
+
+    if (backBuffer.size() != rows || (rows && backBuffer[0].size() != cols)) {
+        backBuffer.assign(rows, std::string(cols, ' '));
+    }
+
+    auto pad = [cols](const std::string& txt) {
+        if (txt.size() < cols) return txt + std::string(cols - txt.size(), ' ');
+        return txt.substr(0, cols);
+    };
 
     const std::size_t promptWidth = 2;
     const std::size_t wrap = cols > promptWidth ? cols - promptWidth : 1;
@@ -121,9 +148,13 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
     std::size_t start = view.size() > logHeight ? view.size() - logHeight : 0;
     for (std::size_t i = 0; i < logHeight && (start + i) < view.size(); ++i) {
         const std::string& line = view[start + i];
-        scr.print_str(1, 1 + i, line);
-        if (tab == Tab::Log && (line.rfind("$ ", 0) == 0 || line.rfind("  ", 0) == 0)) {
-            highlightBf(scr, 3, 1 + i, std::string_view(line).substr(2));
+        std::string padded = pad(line);
+        if (backBuffer[i] != padded) {
+            scr.print_str(1, 1 + i, padded);
+            if (tab == Tab::Log && (line.rfind("$ ", 0) == 0 || line.rfind("  ", 0) == 0)) {
+                highlightBf(scr, 3, 1 + i, std::string_view(line).substr(2));
+            }
+            backBuffer[i] = std::move(padded);
         }
     }
 
@@ -151,16 +182,33 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         }
     }
 
-    scr.print_str(1, logHeight + 1, std::string(cols, '-'));
+    {
+        std::string sep = pad(std::string(cols, '-'));
+        if (backBuffer[logHeight] != sep) {
+            scr.print_str(1, logHeight + 1, sep);
+            backBuffer[logHeight] = std::move(sep);
+        }
+    }
 
     for (std::size_t i = 0; i < inputLines; ++i) {
         std::size_t row = logHeight + 2 + i;
-        scr.print_str(1, row, i == 0 ? "$ " : "  ");
-        scr.print_str(3, row, std::string(lines[i]));
-        highlightBf(scr, 3, row, lines[i]);
+        std::string line = (i == 0 ? "$ " : "  ") + std::string(lines[i]);
+        std::string padded = pad(line);
+        if (backBuffer[row - 1] != padded) {
+            scr.print_str(1, row, padded);
+            highlightBf(scr, 3, row, lines[i]);
+            backBuffer[row - 1] = std::move(padded);
+        }
     }
 
-    scr.print_str(1, logHeight + 2 + inputLines, std::string(cols, '-'));
+    {
+        std::string sep = pad(std::string(cols, '-'));
+        std::size_t row = logHeight + 2 + inputLines;
+        if (backBuffer[row - 1] != sep) {
+            scr.print_str(1, row, sep);
+            backBuffer[row - 1] = std::move(sep);
+        }
+    }
 
     std::string menu =
         "[F1]opt:" + std::string(cfg.optimize ? "on" : "off") +
@@ -178,16 +226,26 @@ std::string render(Term::Window& scr, const std::vector<std::string>& log,
         menu += std::string(cols - menu.size(), ' ');
     else
         menu = menu.substr(0, cols);
-    scr.print_str(1, rows - 1, menu);
+    {
+        std::string paddedMenu = pad(menu);
+        if (backBuffer[rows - 2] != paddedMenu) {
+            scr.print_str(1, rows - 1, paddedMenu);
+            backBuffer[rows - 2] = std::move(paddedMenu);
+        }
+    }
 
     std::string status = "ptr: " + std::to_string(cellPtr) + " val: " + std::to_string(+cellVal);
     if (status.size() < cols)
         status += std::string(cols - status.size(), ' ');
     else
         status = status.substr(0, cols);
-    scr.fill_bg(1, rows, cols, 1, Term::Color::Name::White);
-    scr.fill_fg(1, rows, cols, 1, Term::Color::Name::Black);
-    scr.print_str(1, rows, status);
+    std::string paddedStatus = pad(status);
+    if (backBuffer[rows - 1] != paddedStatus) {
+        scr.fill_bg(1, rows, cols, 1, Term::Color::Name::White);
+        scr.fill_fg(1, rows, cols, 1, Term::Color::Name::Black);
+        scr.print_str(1, rows, paddedStatus);
+        backBuffer[rows - 1] = std::move(paddedStatus);
+    }
 
     std::size_t cursor_col = std::min(promptWidth + lines.back().size() + 1, cols);
     std::size_t cursor_row = logHeight + 1 + lines.size();

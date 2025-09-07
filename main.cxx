@@ -25,9 +25,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <unistd.h>
 #endif
 
@@ -136,8 +136,7 @@ static bool mapFileReadOnly(const std::string& path, MappedFile& mf) {
 #else
     int fd = ::open(path.c_str(), O_RDONLY);
     if (fd < 0) return false;
-    struct stat st {
-    };
+    struct stat st{};
     if (fstat(fd, &st) != 0) {
         ::close(fd);
         return false;
@@ -171,18 +170,13 @@ static bool readBfFileCompacted(const std::string& filename, std::string& out, s
             out.clear();
             return true;
         }
-        // First pass: count BF ops
-        size_t cnt = 0;
-        for (size_t i = 0; i < n; ++i) cnt += isBfChar(p[i]);
-        std::string compact;
-        compact.resize(cnt);
-        size_t j = 0;
+        out.clear();
+        out.reserve(n);
+        // Single pass: append valid Brainfuck ops
         for (size_t i = 0; i < n; ++i) {
-            char c = p[i];
-            if (isBfChar(c)) compact[j++] = c;
+            if (isBfChar(p[i])) out.push_back(p[i]);
         }
         mf.close();
-        out.swap(compact);
         return true;
     }
     // Fallback: stream and compact
@@ -345,8 +339,8 @@ int main(int argc, char* argv[]) {
     if (widthBytes == 0 || cfg.tapeSize > (GOOF2_TAPE_MAX_BYTES / widthBytes)) {
         std::cout << Term::color_fg(Term::Color::Name::Red)
                   << "ERROR:" << Term::color_fg(Term::Color::Name::Default)
-                  << " Requested tape exceeds maximum allowed size (" << (GOOF2_TAPE_MAX_BYTES >> 20)
-                  << " MiB)" << std::endl;
+                  << " Requested tape exceeds maximum allowed size ("
+                  << (GOOF2_TAPE_MAX_BYTES >> 20) << " MiB)" << std::endl;
         return 1;
     }
     std::size_t requiredMem = cfg.tapeSize * widthBytes;
@@ -407,8 +401,8 @@ int main(int argc, char* argv[]) {
             std::string err;
             if (!readBfFileCompacted(filename, code, err)) {
                 std::cout << Term::color_fg(Term::Color::Name::Red)
-                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default) << ' '
-                          << err << std::endl;
+                          << "ERROR:" << Term::color_fg(Term::Color::Name::Default) << ' ' << err
+                          << std::endl;
                 return 1;
             }
         }
