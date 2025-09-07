@@ -5,6 +5,7 @@
 */
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -83,21 +84,23 @@ struct MappedFile {
     }
 };
 
-static bool isBfChar(char c) {
-    switch (c) {
-        case '+':
-        case '-':
-        case '>':
-        case '<':
-        case '[':
-        case ']':
-        case '.':
-        case ',':
-            return true;
-        default:
-            return false;
-    }
-}
+#ifdef NDEBUG
+[[maybe_unused]]
+#endif
+constexpr std::array<bool, 256> bfTable = [] {
+    std::array<bool, 256> table{};
+    table[static_cast<unsigned char>('+')] = true;
+    table[static_cast<unsigned char>('-')] = true;
+    table[static_cast<unsigned char>('>')] = true;
+    table[static_cast<unsigned char>('<')] = true;
+    table[static_cast<unsigned char>('[')] = true;
+    table[static_cast<unsigned char>(']')] = true;
+    table[static_cast<unsigned char>('.')] = true;
+    table[static_cast<unsigned char>(',')] = true;
+    return table;
+}();
+
+static bool isBfChar(char c) { return bfTable[static_cast<unsigned char>(c)]; }
 
 static bool mapFileReadOnly(const std::string& path, MappedFile& mf) {
 #ifdef _WIN32
