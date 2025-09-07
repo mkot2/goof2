@@ -83,33 +83,41 @@ if(GOOF2_ENABLE_REPL)
 endif()
 
 if(GOOF2_ENABLE_REPL)
-    FetchContent_Declare(cpp-terminal
-        GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
-        GIT_TAG a5c1d2619c96ae609357a7109076000b05ad006c
-        GIT_SHALLOW TRUE
-    )
-endif()
-FetchContent_Declare(simde
-    GIT_REPOSITORY https://github.com/simd-everywhere/simde
-    GIT_TAG 9fc78ccbc7b8abee42d43ec99311c171ee8b1904
-    GIT_SHALLOW TRUE
-)
-
-if(GOOF2_ENABLE_REPL)
-    FetchContent_MakeAvailable(cpp-terminal)
-#cpp - terminal triggers some warnings that can become build errors
-#when projects compile with - Werror.Silence the specific warnings
-#about ignored return values and unused variables so that enabling
-#- Werror does not break the build.
+    set(CPP_TERMINAL_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cpp-terminal)
+    if(EXISTS ${CPP_TERMINAL_SOURCE_DIR}/CMakeLists.txt)
+        add_subdirectory(${CPP_TERMINAL_SOURCE_DIR} _deps/cpp-terminal-build)
+    else()
+        FetchContent_Declare(cpp-terminal
+            GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal
+            GIT_TAG a5c1d2619c96ae609357a7109076000b05ad006c
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(cpp-terminal)
+    endif()
+    # cpp-terminal triggers some warnings that can become build errors when
+    # projects compile with -Werror. Silence the specific warnings about ignored
+    # return values and unused variables so that enabling -Werror does not break
+    # the build.
     target_compile_options(cpp-terminal PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wno-unused-result -Wno-unused-variable -Wno-unused-but-set-variable>
     )
 endif()
-FetchContent_GetProperties(simde)
-if(NOT simde_POPULATED)
-    FetchContent_Populate(simde)
+
+set(SIMDE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/simde)
+if(IS_DIRECTORY ${SIMDE_SOURCE_DIR})
+    set(SIMDE_INCLUDE_DIR ${SIMDE_SOURCE_DIR})
+else()
+    FetchContent_Declare(simde
+        GIT_REPOSITORY https://github.com/simd-everywhere/simde
+        GIT_TAG 9fc78ccbc7b8abee42d43ec99311c171ee8b1904
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_GetProperties(simde)
+    if(NOT simde_POPULATED)
+        FetchContent_Populate(simde)
+    endif()
+    set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 endif()
-set(SIMDE_INCLUDE_DIR ${simde_SOURCE_DIR})
 
 set(PCH_HEADER include/pch.hxx)
 set(VM_SOURCES
