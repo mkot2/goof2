@@ -440,6 +440,7 @@ int main(int argc, char* argv[]) {
         if (profile) {
             std::cout << "Instructions executed: " << profileInfo.instructions << std::endl;
             std::cout << "Elapsed time: " << profileInfo.seconds << "s" << std::endl;
+            std::cout << "Heap allocations: " << profileInfo.heapBytes << " bytes" << std::endl;
         }
         return 0;
     }
@@ -602,6 +603,7 @@ int main(int argc, char* argv[]) {
     if (profile) {
         std::cout << "Instructions executed: " << prof.instructions << std::endl;
         std::cout << "Elapsed time: " << prof.seconds << "s" << std::endl;
+        std::cout << "Heap allocations: " << prof.heapBytes << " bytes" << std::endl;
     }
     return 0;
 }
