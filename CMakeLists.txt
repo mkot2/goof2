@@ -203,7 +203,8 @@ if(IS_DIRECTORY ${XXHASH_SOURCE_DIR} AND EXISTS ${XXHASH_SOURCE_DIR}/xxhash.h)
         target_include_directories(xxhash INTERFACE ${XXHASH_SOURCE_DIR})
     endif()
 else()
-    set(XXHASH_COMMIT bab7e27f4c6ae4efbb83dd99ae8a554423571635)
+    # xxhash commit from tag v0.8.3
+    set(XXHASH_COMMIT e626a72bc2321cd320e953a0ccf1584cad60f363)
     if(GIT_PROGRAM)
         FetchContent_Declare(xxhash
             GIT_REPOSITORY https://github.com/Cyan4973/xxHash

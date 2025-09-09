@@ -30,6 +30,7 @@
 #include <iostream>
 #include <list>
 #include <memory_resource>
+#include <mutex>
 #include <ranges>
 #include <regex>
 #include <string>
@@ -47,6 +48,7 @@ namespace {
 constexpr std::size_t kCacheExpectedEntries = 64;
 constexpr std::size_t kCacheMaxEntries = 64;
 std::list<size_t> cacheUsage;
+std::mutex cacheMutex;
 
 struct CountingResource : std::pmr::memory_resource {
     std::pmr::memory_resource* upstream;
@@ -1118,8 +1120,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     MOVEOFFSET();
                     const size_t end = braceTable[i];
                     std::string_view loopSrc(&code[i], end - i + 1);
-                    auto& lc = goof2::getLoopCache();
                     uint64_t hash = XXH3_64bits(loopSrc.data(), loopSrc.size());
+                    std::lock_guard<std::mutex> loopLock(goof2::getLoopCacheMutex());
+                    auto& lc = goof2::getLoopCache();
                     auto it = lc.find(hash);
                     if (it != lc.end()) {
                         instructions.insert(instructions.end(), it->second.begin(),
@@ -1149,6 +1152,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     emit(insType::JMP_NOT_ZER, instruction{nullptr, sizeminstart, 0, 0});
                     std::string_view loopSrc(&code[startCode], i - startCode + 1);
                     uint64_t hash = XXH3_64bits(loopSrc.data(), loopSrc.size());
+                    std::lock_guard<std::mutex> loopLock(goof2::getLoopCacheMutex());
                     auto& lc = goof2::getLoopCache();
                     if (lc.find(hash) == lc.end()) {
                         lc.emplace(hash, std::vector<instruction>(instructions.begin() + startInst,
@@ -1981,6 +1985,7 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     size_t key = 0;
     std::vector<instruction>* cacheVec = nullptr;
     if (cache) {
+        std::lock_guard<std::mutex> lock(cacheMutex);
         if (cache->empty()) {
             cache->reserve(kCacheExpectedEntries);
             cacheUsage.clear();

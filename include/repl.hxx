@@ -52,7 +52,9 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
     for (size_t i = 0, row = 0; i <= end; ++i) {
         if (i % 10 == 0) {
             if (row) out << std::endl;
-            out << row << std::string(8 - std::to_string(row).length(), ' ') << "|";
+            std::string rowStr = std::to_string(row);
+            size_t rowPad = rowStr.length() < 8 ? 8 - rowStr.length() : 0;
+            out << rowStr << std::string(rowPad, ' ') << "|";
             row += 10;
         }
         bool changedCell = highlight && changed &&
@@ -62,8 +64,9 @@ inline void dumpMemory(const std::vector<CellT>& cells, size_t cellPtr,
                             : match       ? ansi::red
                             : changedCell ? ansi::yellow
                                           : ansi::reset;
-        out << color << +cells[i] << ansi::reset
-            << std::string(3 - std::to_string(cells[i]).length(), ' ') << "|";
+        std::string cellStr = std::to_string(cells[i]);
+        size_t cellPad = cellStr.length() < 3 ? 3 - cellStr.length() : 0;
+        out << color << cellStr << ansi::reset << std::string(cellPad, ' ') << "|";
     }
     out << ansi::reset << std::endl;
 }
@@ -76,10 +79,12 @@ inline void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::strin
                                     profile);
     switch (ret) {
         case 1:
-            std::cout << ansi::red << "ERROR:" << ansi::reset << " Unmatched close bracket";
+            std::cout << ansi::red << "ERROR:" << ansi::reset << " Unmatched close bracket"
+                      << std::endl;
             break;
         case 2:
-            std::cout << ansi::red << "ERROR:" << ansi::reset << " Unmatched open bracket";
+            std::cout << ansi::red << "ERROR:" << ansi::reset << " Unmatched open bracket"
+                      << std::endl;
             break;
     }
 }

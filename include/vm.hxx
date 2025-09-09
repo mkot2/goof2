@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -80,6 +81,7 @@ using InstructionCache = std::unordered_map<size_t, CacheEntry>;
 using LoopCache = std::unordered_map<std::uint64_t, std::vector<instruction>>;
 
 LoopCache& getLoopCache();
+std::mutex& getLoopCacheMutex();
 void clearLoopCache();
 
 /// @brief Only function you should use in your code. For now, it always prints to stdout.

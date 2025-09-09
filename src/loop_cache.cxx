@@ -1,3 +1,4 @@
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -5,8 +6,14 @@
 
 namespace goof2 {
 static LoopCache loopCacheInstance;
+static std::mutex loopCacheMutex;
 
 LoopCache& getLoopCache() { return loopCacheInstance; }
 
-void clearLoopCache() { loopCacheInstance.clear(); }
+std::mutex& getLoopCacheMutex() { return loopCacheMutex; }
+
+void clearLoopCache() {
+    std::lock_guard<std::mutex> lock(loopCacheMutex);
+    loopCacheInstance.clear();
+}
 }  // namespace goof2

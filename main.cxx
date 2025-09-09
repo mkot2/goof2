@@ -71,12 +71,15 @@ struct MappedFile {
         if (data) UnmapViewOfFile((LPCVOID)data);
         if (hMap) CloseHandle(hMap);
         if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
+        hFile = INVALID_HANDLE_VALUE;
+        hMap = nullptr;
 #else
         if (data && size) {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
             munmap(const_cast<char*>(data), size);
         }
         if (fd >= 0) ::close(fd);
+        fd = -1;
 #endif
         data = nullptr;
         size = 0;
@@ -511,10 +514,10 @@ void executeExcept(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
                                     profile);
     switch (ret) {
         case 1:
-            std::cerr << "ERROR: Unmatched close bracket";
+            std::cerr << "ERROR: Unmatched close bracket\n";
             break;
         case 2:
-            std::cerr << "ERROR: Unmatched open bracket";
+            std::cerr << "ERROR: Unmatched open bracket\n";
             break;
     }
 }
