@@ -658,8 +658,8 @@ static inline size_t simdScan0FwdAny(const CellT* p, const CellT* end, unsigned 
             int m = simde_mm_movemask_epi8(cmp);
             m = compressMask16<Bytes>(m);
             if (m) {
-                unsigned idx = tzcnt32(static_cast<unsigned>(m));
-                return off + idx * step;
+                unsigned lane = tzcnt32(static_cast<unsigned>(m)) / Bytes;
+                return off + lane * step;
             }
             x += step * lanes;
             off += step * lanes;
@@ -702,8 +702,8 @@ static inline size_t simdScan0BackAny(const CellT* base, const CellT* p, unsigne
             int m = simde_mm_movemask_epi8(cmp);
             m = compressMask16<Bytes>(m);
             if (m) {
-                unsigned idx = tzcnt32(static_cast<unsigned>(m));
-                return back + idx * step;
+                unsigned lane = tzcnt32(static_cast<unsigned>(m)) / Bytes;
+                return back + lane * step;
             }
             x -= step * lanes;
             back += step * lanes;
