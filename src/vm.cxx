@@ -196,6 +196,9 @@ static const std::regex clearSeqRe(R"(C{2,})", optimize | nosubs);
 static const std::regex clearPassRe(R"((C([+-]+))|C{2,})", optimize);
 }  // namespace goof2::vmRegex
 
+#if defined(SIMDE_ARCH_AARCH64)
+#include "simde/arm/neon.h"
+#endif
 #include "simde/x86/avx2.h"
 #include "simde/x86/avx512.h"
 #include "simde/x86/sse2.h"
@@ -215,6 +218,14 @@ static inline bool runtimeHasAvx512() {
     static int cached = -1;
     if (cached < 0) cached = __builtin_cpu_supports("avx512f");
     return cached;
+#else
+    return false;
+#endif
+}
+
+static inline bool runtimeHasNeon() {
+#if defined(SIMDE_ARCH_AARCH64)
+    return true;
 #else
     return false;
 #endif
@@ -444,18 +455,67 @@ static inline size_t simdScan0FwdAvx512(const CellT* p, const CellT* end) {
     }
 }
 
+#if defined(SIMDE_ARCH_AARCH64)
+template <typename CellT>
+static inline size_t simdScan0FwdNeon(const CellT* p, const CellT* end) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        return (size_t)(end - p);
+    } else {
+        constexpr unsigned LANES = 16 / Bytes;
+        while (((uintptr_t)x & 15u) && x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        const simde__m128i vz = simde_mm_setzero_si128();
+        for (; x + LANES <= end; x += LANES) {
+            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
+            simde__m128i cmp;
+            if constexpr (Bytes == 1)
+                cmp = simde_mm_cmpeq_epi8(v, vz);
+            else if constexpr (Bytes == 2)
+                cmp = simde_mm_cmpeq_epi16(v, vz);
+            else if constexpr (Bytes == 4)
+                cmp = simde_mm_cmpeq_epi32(v, vz);
+            else
+                cmp = simde_mm_cmpeq_epi64(v, vz);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            if (m) {
+                unsigned idx = tzcnt32((unsigned)m);
+                return (size_t)((x - p) + idx / Bytes);
+            }
+        }
+        while (x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        return (size_t)(end - p);
+    }
+}
+#endif
+
 template <typename CellT>
 using SimdScan0Fwd = size_t (*)(const CellT*, const CellT*);
 
 static const bool hasAvx512 = runtimeHasAvx512();
+static const bool hasNeon = runtimeHasNeon();
 
 template <typename CellT>
 static SimdScan0Fwd<CellT> simdScan0FwdFn =
-    hasAvx512 ? simdScan0FwdAvx512<CellT> : simdScan0FwdAvx2<CellT>;
+#if defined(SIMDE_ARCH_AARCH64)
+    hasNeon ? simdScan0FwdNeon<CellT> :
+#endif
+            (hasAvx512 ? simdScan0FwdAvx512<CellT> : simdScan0FwdAvx2<CellT>);
 
 /*** step == 1 backward scan: last zero in [base,p], return distance back ***/
 template <typename CellT>
-static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
+static inline size_t simdScan0BackAvx2(const CellT* base, const CellT* p) {
     const CellT* x = p;
     constexpr unsigned Bytes = sizeof(CellT);
     if constexpr (Bytes > 8) {
@@ -498,6 +558,63 @@ static inline size_t simdScan0Back(const CellT* base, const CellT* p) {
         return (size_t)(p - base + 1);
     }
 }
+#if defined(SIMDE_ARCH_AARCH64)
+template <typename CellT>
+static inline size_t simdScan0BackNeon(const CellT* base, const CellT* p) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        return (size_t)(p - base + 1);
+    } else {
+        constexpr unsigned LANES = 16 / Bytes;
+        while (((uintptr_t)(x - (LANES - 1)) & 15u) && x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        const simde__m128i vz = simde_mm_setzero_si128();
+        while (x + 1 >= base + LANES) {
+            const CellT* blk = x - (LANES - 1);
+            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
+            simde__m128i cmp;
+            if constexpr (Bytes == 1)
+                cmp = simde_mm_cmpeq_epi8(v, vz);
+            else if constexpr (Bytes == 2)
+                cmp = simde_mm_cmpeq_epi16(v, vz);
+            else if constexpr (Bytes == 4)
+                cmp = simde_mm_cmpeq_epi32(v, vz);
+            else
+                cmp = simde_mm_cmpeq_epi64(v, vz);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            if (m) {
+                unsigned bit = 15u - lzcnt32((unsigned)m);
+                unsigned lane = bit / Bytes;
+                return (size_t)(p - (blk + lane));
+            }
+            x -= LANES;
+        }
+        while (x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        return (size_t)(p - base + 1);
+    }
+}
+#endif
+
+template <typename CellT>
+using SimdScan0Back = size_t (*)(const CellT*, const CellT*);
+
+template <typename CellT>
+static SimdScan0Back<CellT> simdScan0BackFn =
+#if defined(SIMDE_ARCH_AARCH64)
+    hasNeon ? simdScan0BackNeon<CellT> :
+#endif
+            simdScan0BackAvx2<CellT>;
 
 /*** tiny-stride forward scan: step in {2,4,8} ***/
 template <unsigned Step, typename CellT>
@@ -1744,7 +1861,7 @@ _SCN_LFT: {
     }
 
     if (step == 1) {
-        size_t back = simdScan0Back<CellT>(cellBase, cell);
+        size_t back = simdScan0BackFn<CellT>(cellBase, cell);
         cell -= back;
         if (cell < cellBase) {
             cell = cellBase;
