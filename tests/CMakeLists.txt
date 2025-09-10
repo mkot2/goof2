@@ -94,3 +94,12 @@ if(NOT GOOF2_ENABLE_REPL)
     set_tests_properties(vm_cli_eval_tests PROPERTIES TIMEOUT 15)
 endif()
 
+add_executable(repl_benchmark
+    repl_benchmark.cxx
+)
+
+target_link_libraries(repl_benchmark PRIVATE
+    Warnings
+)
+target_include_directories(repl_benchmark PRIVATE ${SIMDE_INCLUDE_DIR})
+

@@ -8,6 +8,7 @@
 #include "repl.hxx"
 
 #include <linenoise.h>
+#include <simde/x86/avx2.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -144,7 +145,26 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
         if (cfg.highlightChanges) {
             changed.clear();
             size_t limit = std::min(prevCells.size(), cells.size());
-            for (size_t i = 0; i < limit; ++i) {
+            constexpr size_t simdBytes = 32;
+            size_t elemsPerVec = simdBytes / sizeof(CellT);
+            size_t vecEnd = (limit / elemsPerVec) * elemsPerVec;
+            const uint8_t* curr = reinterpret_cast<const uint8_t*>(cells.data());
+            const uint8_t* prev = reinterpret_cast<const uint8_t*>(prevCells.data());
+            for (size_t off = 0; off < vecEnd * sizeof(CellT); off += simdBytes) {
+                auto a = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(curr + off));
+                auto b = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(prev + off));
+                auto eq = simde_mm256_cmpeq_epi8(a, b);
+                uint32_t mask = simde_mm256_movemask_epi8(eq);
+                if (mask != 0xFFFFFFFFu) {
+                    size_t base = off / sizeof(CellT);
+                    for (size_t j = 0; j < simdBytes; j += sizeof(CellT)) {
+                        uint32_t lane = (mask >> j) & ((1u << sizeof(CellT)) - 1u);
+                        if (lane != ((1u << sizeof(CellT)) - 1u))
+                            changed.push_back(base + j / sizeof(CellT));
+                    }
+                }
+            }
+            for (size_t i = vecEnd; i < limit; ++i) {
                 if (cells[i] != prevCells[i]) changed.push_back(i);
             }
             for (size_t i = limit; i < cells.size(); ++i) {
