@@ -203,6 +203,9 @@ static const std::regex clearPassRe(R"((C([+-]+))|C{2,})", optimize);
 #include "simde/x86/avx2.h"
 #include "simde/x86/avx512.h"
 #include "simde/x86/sse2.h"
+#if !defined(simde_mm512_cmpeq_epi16_mask)
+#define simde_mm512_cmpeq_epi16_mask simde_mm512_cmpeq_epu16_mask
+#endif
 
 // Safe count-zero helpers using C++20 <bit> utilities
 static inline unsigned tzcnt32(unsigned x) { return static_cast<unsigned>(std::countr_zero(x)); }
@@ -505,7 +508,7 @@ static inline size_t simdScan0FwdAvx512(const CellT* p, const CellT* end) {
             if constexpr (Bytes == 1)
                 m = simde_mm512_cmpeq_epi8_mask(v, vz512);
             else if constexpr (Bytes == 2)
-                m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                m = simde_mm512_cmpeq_epi16_mask(v, vz512);
             else if constexpr (Bytes == 4)
                 m = simde_mm512_cmpeq_epi32_mask(v, vz512);
             else
@@ -651,7 +654,7 @@ static inline size_t simdScan0BackAvx512(const CellT* base, const CellT* p) {
             if constexpr (Bytes == 1)
                 m = simde_mm512_cmpeq_epi8_mask(v, vz512);
             else if constexpr (Bytes == 2)
-                m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                m = simde_mm512_cmpeq_epi16_mask(v, vz512);
             else if constexpr (Bytes == 4)
                 m = simde_mm512_cmpeq_epi32_mask(v, vz512);
             else
@@ -802,7 +805,7 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
                 if constexpr (Bytes == 1)
                     m = simde_mm512_cmpeq_epi8_mask(v, vz512);
                 else if constexpr (Bytes == 2)
-                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                    m = simde_mm512_cmpeq_epi16_mask(v, vz512);
                 else if constexpr (Bytes == 4)
                     m = simde_mm512_cmpeq_epi32_mask(v, vz512);
                 else
@@ -910,7 +913,7 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
                 if constexpr (Bytes == 1)
                     m = simde_mm512_cmpeq_epi8_mask(v, vz512);
                 else if constexpr (Bytes == 2)
-                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                    m = simde_mm512_cmpeq_epi16_mask(v, vz512);
                 else if constexpr (Bytes == 4)
                     m = simde_mm512_cmpeq_epi32_mask(v, vz512);
                 else
@@ -1019,7 +1022,7 @@ static inline size_t simdScan0FwdAny(const CellT* p, const CellT* end, unsigned 
                 if constexpr (Bytes == 1)
                     m = simde_mm512_cmpeq_epi8_mask(v, vz512);
                 else if constexpr (Bytes == 2)
-                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                    m = simde_mm512_cmpeq_epi16_mask(v, vz512);
                 else if constexpr (Bytes == 4)
                     m = simde_mm512_cmpeq_epi32_mask(v, vz512);
                 else
@@ -1114,7 +1117,7 @@ static inline size_t simdScan0BackAny(const CellT* base, const CellT* p, unsigne
                 if constexpr (Bytes == 1)
                     m = simde_mm512_cmpeq_epi8_mask(v, vz512);
                 else if constexpr (Bytes == 2)
-                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                    m = simde_mm512_cmpeq_epi16_mask(v, vz512);
                 else if constexpr (Bytes == 4)
                     m = simde_mm512_cmpeq_epi32_mask(v, vz512);
                 else
