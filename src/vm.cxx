@@ -224,6 +224,26 @@ static inline bool runtimeHasAvx512() {
 #endif
 }
 
+static inline bool runtimeHasAvx2() {
+#if defined(SIMDE_ARCH_X86) && !defined(__EMSCRIPTEN__)
+    static int cached = -1;
+    if (cached < 0) cached = __builtin_cpu_supports("avx2");
+    return cached;
+#else
+    return false;
+#endif
+}
+
+static inline bool runtimeHasSse2() {
+#if defined(SIMDE_ARCH_X86) && !defined(__EMSCRIPTEN__)
+    static int cached = -1;
+    if (cached < 0) cached = __builtin_cpu_supports("sse2");
+    return cached;
+#else
+    return false;
+#endif
+}
+
 static inline bool runtimeHasNeon() {
 #if defined(SIMDE_ARCH_AARCH64)
     return true;
@@ -378,6 +398,49 @@ static inline int compressMask16(int m) {
 }
 
 template <typename CellT>
+static inline size_t simdScan0FwdSse2(const CellT* p, const CellT* end) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        return (size_t)(end - p);
+    } else {
+        constexpr unsigned LANES = 16 / Bytes;
+        while (((uintptr_t)x & 15u) && x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        const simde__m128i vz = simde_mm_setzero_si128();
+        for (; x + LANES <= end; x += LANES) {
+            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
+            simde__m128i cmp;
+            if constexpr (Bytes == 1)
+                cmp = simde_mm_cmpeq_epi8(v, vz);
+            else if constexpr (Bytes == 2)
+                cmp = simde_mm_cmpeq_epi16(v, vz);
+            else if constexpr (Bytes == 4)
+                cmp = simde_mm_cmpeq_epi32(v, vz);
+            else
+                cmp = simde_mm_cmpeq_epi64(v, vz);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            if (m) {
+                unsigned idx = tzcnt32((unsigned)m);
+                return (size_t)((x - p) + idx / Bytes);
+            }
+        }
+        while (x < end) {
+            if (*x == 0) return (size_t)(x - p);
+            ++x;
+        }
+        return (size_t)(end - p);
+    }
+}
+
+template <typename CellT>
 static inline size_t simdScan0FwdAvx2(const CellT* p, const CellT* end) {
     const CellT* x = p;
     constexpr unsigned Bytes = sizeof(CellT);
@@ -505,6 +568,8 @@ template <typename CellT>
 using SimdScan0Fwd = size_t (*)(const CellT*, const CellT*);
 
 static const bool hasAvx512 = runtimeHasAvx512();
+static const bool hasAvx2 = runtimeHasAvx2();
+static const bool hasSse2 = runtimeHasSse2();
 static const bool hasNeon = runtimeHasNeon();
 
 template <typename CellT>
@@ -512,9 +577,99 @@ static SimdScan0Fwd<CellT> simdScan0FwdFn =
 #if defined(SIMDE_ARCH_AARCH64)
     hasNeon ? simdScan0FwdNeon<CellT> :
 #endif
-            (hasAvx512 ? simdScan0FwdAvx512<CellT> : simdScan0FwdAvx2<CellT>);
+            (hasAvx512 ? simdScan0FwdAvx512<CellT>
+                       : (hasAvx2 ? simdScan0FwdAvx2<CellT> : simdScan0FwdSse2<CellT>));
 
 /*** step == 1 backward scan: last zero in [base,p], return distance back ***/
+template <typename CellT>
+static inline size_t simdScan0BackSse2(const CellT* base, const CellT* p) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        return (size_t)(p - base + 1);
+    } else {
+        constexpr unsigned LANES = 16 / Bytes;
+        while (((uintptr_t)(x - (LANES - 1)) & 15u) && x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        const simde__m128i vz = simde_mm_setzero_si128();
+        while (x + 1 >= base + LANES) {
+            const CellT* blk = x - (LANES - 1);
+            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
+            simde__m128i cmp;
+            if constexpr (Bytes == 1)
+                cmp = simde_mm_cmpeq_epi8(v, vz);
+            else if constexpr (Bytes == 2)
+                cmp = simde_mm_cmpeq_epi16(v, vz);
+            else if constexpr (Bytes == 4)
+                cmp = simde_mm_cmpeq_epi32(v, vz);
+            else
+                cmp = simde_mm_cmpeq_epi64(v, vz);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            if (m) {
+                unsigned bit = 15u - lzcnt32((unsigned)m);
+                unsigned lane = bit / Bytes;
+                return (size_t)(p - (blk + lane));
+            }
+            x -= LANES;
+        }
+        while (x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        return (size_t)(p - base + 1);
+    }
+}
+
+template <typename CellT>
+static inline size_t simdScan0BackAvx512(const CellT* base, const CellT* p) {
+    const CellT* x = p;
+    constexpr unsigned Bytes = sizeof(CellT);
+    if constexpr (Bytes > 8) {
+        while (x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        return (size_t)(p - base + 1);
+    } else {
+        constexpr unsigned LANES512 = 64 / Bytes;
+        while (((uintptr_t)(x - (LANES512 - 1)) & 63u) && x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        const simde__m512i vz512 = simde_mm512_setzero_si512();
+        while (x + 1 >= base + LANES512) {
+            const CellT* blk = x - (LANES512 - 1);
+            simde__m512i v = simde_mm512_loadu_si512((const void*)blk);
+            simde__mmask64 m;
+            if constexpr (Bytes == 1)
+                m = simde_mm512_cmpeq_epi8_mask(v, vz512);
+            else if constexpr (Bytes == 2)
+                m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+            else if constexpr (Bytes == 4)
+                m = simde_mm512_cmpeq_epi32_mask(v, vz512);
+            else
+                m = simde_mm512_cmpeq_epi64_mask(v, vz512);
+            if (m) {
+                unsigned bit = 63u - lzcnt64((unsigned long long)m);
+                return (size_t)(p - (blk + bit));
+            }
+            x -= LANES512;
+        }
+        while (x >= base) {
+            if (*x == 0) return (size_t)(p - x);
+            --x;
+        }
+        return (size_t)(p - base + 1);
+    }
+}
+
 template <typename CellT>
 static inline size_t simdScan0BackAvx2(const CellT* base, const CellT* p) {
     const CellT* x = p;
@@ -615,7 +770,8 @@ static SimdScan0Back<CellT> simdScan0BackFn =
 #if defined(SIMDE_ARCH_AARCH64)
     hasNeon ? simdScan0BackNeon<CellT> :
 #endif
-            simdScan0BackAvx2<CellT>;
+            (hasAvx512 ? simdScan0BackAvx512<CellT>
+                       : (hasAvx2 ? simdScan0BackAvx2<CellT> : simdScan0BackSse2<CellT>));
 
 /*** tiny-stride forward scan: step in {2,4,8} ***/
 template <unsigned Step, typename CellT>
@@ -632,7 +788,7 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
         }
         return (size_t)(end - p);
     } else {
-        if (runtimeHasAvx512()) {
+        if (hasAvx512) {
             constexpr unsigned LANES512 = 64 / Bytes;
             while (((uintptr_t)x & 63u) && x < end) {
                 if (phase == 0 && *x == 0) return (size_t)(x - p);
@@ -659,31 +815,60 @@ static inline size_t simdScan0FwdStride(const CellT* p, const CellT* end, unsign
                 phase = (phase + LANES512) & Mask;
             }
         }
-        constexpr unsigned LANES = 32 / Bytes;
-        while (((uintptr_t)x & 31u) && x < end) {
+        if (hasAvx2) {
+            constexpr unsigned LANES = 32 / Bytes;
+            while (((uintptr_t)x & 31u) && x < end) {
+                if (phase == 0 && *x == 0) return (size_t)(x - p);
+                ++x;
+                phase = (phase + 1) & Mask;
+            }
+            const simde__m256i vz = simde_mm256_setzero_si256();
+            for (; x + LANES <= end; x += LANES) {
+                simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)x);
+                int m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+                else if constexpr (Bytes == 2)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+                else if constexpr (Bytes == 4)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+                else
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
+                m = compressMask32<Bytes>(m);
+                m &= (int)strideMask32<Bytes, Step>(phase);
+                if (m) {
+                    unsigned idx = tzcnt32((unsigned)m);
+                    return (size_t)((x - p) + idx / Bytes);
+                }
+                phase = (phase + LANES) & Mask;
+            }
+        }
+        constexpr unsigned LANES128 = 16 / Bytes;
+        while (((uintptr_t)x & 15u) && x < end) {
             if (phase == 0 && *x == 0) return (size_t)(x - p);
             ++x;
             phase = (phase + 1) & Mask;
         }
-        const simde__m256i vz = simde_mm256_setzero_si256();
-        for (; x + LANES <= end; x += LANES) {
-            simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)x);
-            int m;
+        const simde__m128i vz128 = simde_mm_setzero_si128();
+        for (; x + LANES128 <= end; x += LANES128) {
+            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)x);
+            simde__m128i cmp;
             if constexpr (Bytes == 1)
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+                cmp = simde_mm_cmpeq_epi8(v, vz128);
             else if constexpr (Bytes == 2)
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+                cmp = simde_mm_cmpeq_epi16(v, vz128);
             else if constexpr (Bytes == 4)
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+                cmp = simde_mm_cmpeq_epi32(v, vz128);
             else
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
-            m = compressMask32<Bytes>(m);
-            m &= (int)strideMask32<Bytes, Step>(phase);
+                cmp = simde_mm_cmpeq_epi64(v, vz128);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            m &= (int)StrideMask16Table<Bytes, Step>::masks[phase & Mask];
             if (m) {
                 unsigned idx = tzcnt32((unsigned)m);
                 return (size_t)((x - p) + idx / Bytes);
             }
-            phase = (phase + LANES) & Mask;
+            phase = (phase + LANES128) & Mask;
         }
         while (x < end) {
             if (phase == 0 && *x == 0) return (size_t)(x - p);
@@ -709,34 +894,97 @@ static inline size_t simdScan0BackStride(const CellT* base, const CellT* p, unsi
         }
         return (size_t)(p - base + 1);
     } else {
-        constexpr unsigned LANES = 32 / Bytes;
-        while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
+        if (hasAvx512) {
+            constexpr unsigned LANES512 = 64 / Bytes;
+            while (((uintptr_t)(x - (LANES512 - 1)) & 63u) && x >= base) {
+                if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
+                --x;
+                phaseAtP = (phaseAtP + Step - 1) & Mask;
+            }
+            const simde__m512i vz512 = simde_mm512_setzero_si512();
+            while (x + 1 >= base + LANES512) {
+                const CellT* blk = x - (LANES512 - 1);
+                unsigned lane0 = (unsigned)(blk - base) & Mask;
+                simde__m512i v = simde_mm512_loadu_si512((const void*)blk);
+                simde__mmask64 m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm512_cmpeq_epi8_mask(v, vz512);
+                else if constexpr (Bytes == 2)
+                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                else if constexpr (Bytes == 4)
+                    m = simde_mm512_cmpeq_epi32_mask(v, vz512);
+                else
+                    m = simde_mm512_cmpeq_epi64_mask(v, vz512);
+                m &= strideMask64<Bytes>(Step, lane0);
+                if (m) {
+                    unsigned bit = 63u - lzcnt64((unsigned long long)m);
+                    return (size_t)(p - (blk + bit));
+                }
+                x -= LANES512;
+            }
+            phaseAtP = static_cast<unsigned>(x - base) & Mask;
+        }
+        if (hasAvx2) {
+            constexpr unsigned LANES = 32 / Bytes;
+            while (((uintptr_t)(x - (LANES - 1)) & 31u) && x >= base) {
+                if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
+                --x;
+                phaseAtP = (phaseAtP + Step - 1) & Mask;
+            }
+            const simde__m256i vz = simde_mm256_setzero_si256();
+            while (x + 1 >= base + LANES) {
+                const CellT* blk = x - (LANES - 1);
+                unsigned lane0 = (unsigned)(blk - base) & Mask;
+                simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
+                int m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+                else if constexpr (Bytes == 2)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+                else if constexpr (Bytes == 4)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+                else
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
+                m = compressMask32<Bytes>(m);
+                m &= (int)strideMask32<Bytes, Step>(lane0);
+                if (m) {
+                    unsigned bit = 31u - lzcnt32((unsigned)m);
+                    unsigned lane = bit / Bytes;
+                    return (size_t)(p - (blk + lane));
+                }
+                x -= LANES;
+            }
+            phaseAtP = static_cast<unsigned>(x - base) & Mask;
+        }
+        constexpr unsigned LANES128 = 16 / Bytes;
+        while (((uintptr_t)(x - (LANES128 - 1)) & 15u) && x >= base) {
             if (phaseAtP == 0 && *x == 0) return (size_t)(p - x);
             --x;
             phaseAtP = (phaseAtP + Step - 1) & Mask;
         }
-        const simde__m256i vz = simde_mm256_setzero_si256();
-        while (x + 1 >= base + LANES) {
-            const CellT* blk = x - (LANES - 1);
+        const simde__m128i vz128 = simde_mm_setzero_si128();
+        while (x + 1 >= base + LANES128) {
+            const CellT* blk = x - (LANES128 - 1);
             unsigned lane0 = (unsigned)(blk - base) & Mask;
-            simde__m256i v = simde_mm256_loadu_si256((const simde__m256i*)blk);
-            int m;
+            simde__m128i v = simde_mm_loadu_si128((const simde__m128i*)blk);
+            simde__m128i cmp;
             if constexpr (Bytes == 1)
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz));
+                cmp = simde_mm_cmpeq_epi8(v, vz128);
             else if constexpr (Bytes == 2)
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz));
+                cmp = simde_mm_cmpeq_epi16(v, vz128);
             else if constexpr (Bytes == 4)
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz));
+                cmp = simde_mm_cmpeq_epi32(v, vz128);
             else
-                m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz));
-            m = compressMask32<Bytes>(m);
-            m &= (int)strideMask32<Bytes, Step>(lane0);
+                cmp = simde_mm_cmpeq_epi64(v, vz128);
+            int m = simde_mm_movemask_epi8(cmp);
+            m = compressMask16<Bytes>(m);
+            m &= (int)StrideMask16Table<Bytes, Step>::masks[lane0];
             if (m) {
-                unsigned bit = 31u - lzcnt32((unsigned)m);
+                unsigned bit = 15u - lzcnt32((unsigned)m);
                 unsigned lane = bit / Bytes;
                 return (size_t)(p - (blk + lane));
             }
-            x -= LANES;
+            x -= LANES128;
         }
         phaseAtP = static_cast<unsigned>(x - base) & Mask;
         while (x >= base) {
@@ -760,6 +1008,56 @@ static inline size_t simdScan0FwdAny(const CellT* p, const CellT* end, unsigned 
         }
         return off;
     } else {
+        if (hasAvx512) {
+            const unsigned lanes512 = 64 / Bytes;
+            const simde__m512i vz512 = simde_mm512_setzero_si512();
+            while (x + step * (lanes512 - 1) < end) {
+                CellT tmp[lanes512];
+                for (unsigned i = 0; i < lanes512; ++i) tmp[i] = x[i * step];
+                simde__m512i v = simde_mm512_loadu_si512((const void*)tmp);
+                simde__mmask64 m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm512_cmpeq_epi8_mask(v, vz512);
+                else if constexpr (Bytes == 2)
+                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                else if constexpr (Bytes == 4)
+                    m = simde_mm512_cmpeq_epi32_mask(v, vz512);
+                else
+                    m = simde_mm512_cmpeq_epi64_mask(v, vz512);
+                if (m) {
+                    unsigned lane = tzcnt64((unsigned long long)m);
+                    return off + lane * step;
+                }
+                x += step * lanes512;
+                off += step * lanes512;
+            }
+        }
+        if (hasAvx2) {
+            const unsigned lanes256 = 32 / Bytes;
+            const simde__m256i vz256 = simde_mm256_setzero_si256();
+            while (x + step * (lanes256 - 1) < end) {
+                CellT tmp[lanes256];
+                for (unsigned i = 0; i < lanes256; ++i) tmp[i] = x[i * step];
+                simde__m256i v =
+                    simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(tmp));
+                int m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz256));
+                else if constexpr (Bytes == 2)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz256));
+                else if constexpr (Bytes == 4)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz256));
+                else
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz256));
+                m = compressMask32<Bytes>(m);
+                if (m) {
+                    unsigned lane = tzcnt32(static_cast<unsigned>(m)) / Bytes;
+                    return off + lane * step;
+                }
+                x += step * lanes256;
+                off += step * lanes256;
+            }
+        }
         const unsigned lanes = 16 / Bytes;
         const simde__m128i vz = simde_mm_setzero_si128();
         while (x + step * (lanes - 1) < end) {
@@ -804,6 +1102,58 @@ static inline size_t simdScan0BackAny(const CellT* base, const CellT* p, unsigne
         }
         return back;
     } else {
+        if (hasAvx512) {
+            const unsigned lanes512 = 64 / Bytes;
+            const simde__m512i vz512 = simde_mm512_setzero_si512();
+            while (x >= base + step * (lanes512 - 1)) {
+                CellT tmp[lanes512];
+                for (unsigned i = 0; i < lanes512; ++i)
+                    tmp[i] = x[-static_cast<int>(i) * (int)step];
+                simde__m512i v = simde_mm512_loadu_si512((const void*)tmp);
+                simde__mmask64 m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm512_cmpeq_epi8_mask(v, vz512);
+                else if constexpr (Bytes == 2)
+                    m = simde_mm512_cmpeq_epu16_mask(v, vz512);
+                else if constexpr (Bytes == 4)
+                    m = simde_mm512_cmpeq_epi32_mask(v, vz512);
+                else
+                    m = simde_mm512_cmpeq_epi64_mask(v, vz512);
+                if (m) {
+                    unsigned lane = tzcnt64((unsigned long long)m);
+                    return back + lane * step;
+                }
+                x -= step * lanes512;
+                back += step * lanes512;
+            }
+        }
+        if (hasAvx2) {
+            const unsigned lanes256 = 32 / Bytes;
+            const simde__m256i vz256 = simde_mm256_setzero_si256();
+            while (x >= base + step * (lanes256 - 1)) {
+                CellT tmp[lanes256];
+                for (unsigned i = 0; i < lanes256; ++i)
+                    tmp[i] = x[-static_cast<int>(i) * (int)step];
+                simde__m256i v =
+                    simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(tmp));
+                int m;
+                if constexpr (Bytes == 1)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi8(v, vz256));
+                else if constexpr (Bytes == 2)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi16(v, vz256));
+                else if constexpr (Bytes == 4)
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi32(v, vz256));
+                else
+                    m = simde_mm256_movemask_epi8(simde_mm256_cmpeq_epi64(v, vz256));
+                m = compressMask32<Bytes>(m);
+                if (m) {
+                    unsigned lane = tzcnt32(static_cast<unsigned>(m)) / Bytes;
+                    return back + lane * step;
+                }
+                x -= step * lanes256;
+                back += step * lanes256;
+            }
+        }
         const unsigned lanes = 16 / Bytes;
         const simde__m128i vz = simde_mm_setzero_si128();
         while (x >= base + step * (lanes - 1)) {
@@ -840,10 +1190,25 @@ template <typename CellT>
 static inline void simdClear(CellT* start, size_t count) {
     std::uint8_t* bytes = reinterpret_cast<std::uint8_t*>(start);
     size_t byteCount = count * sizeof(CellT);
-    const simde__m256i zero = simde_mm256_setzero_si256();
-    size_t simdBytes = byteCount & ~static_cast<size_t>(31);
-    for (size_t i = 0; i < simdBytes; i += 32) {
-        simde_mm256_storeu_si256(reinterpret_cast<simde__m256i*>(bytes + i), zero);
+    size_t simdBytes = 0;
+    if (hasAvx512) {
+        const simde__m512i zero512 = simde_mm512_setzero_si512();
+        simdBytes = byteCount & ~static_cast<size_t>(63);
+        for (size_t i = 0; i < simdBytes; i += 64) {
+            simde_mm512_storeu_si512(bytes + i, zero512);
+        }
+    } else if (hasAvx2) {
+        const simde__m256i zero256 = simde_mm256_setzero_si256();
+        simdBytes = byteCount & ~static_cast<size_t>(31);
+        for (size_t i = 0; i < simdBytes; i += 32) {
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i*>(bytes + i), zero256);
+        }
+    } else {
+        const simde__m128i zero128 = simde_mm_setzero_si128();
+        simdBytes = byteCount & ~static_cast<size_t>(15);
+        for (size_t i = 0; i < simdBytes; i += 16) {
+            simde_mm_storeu_si128(reinterpret_cast<simde__m128i*>(bytes + i), zero128);
+        }
     }
     std::memset(bytes + simdBytes, 0, byteCount - simdBytes);
 }

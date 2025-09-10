@@ -1,4 +1,6 @@
 #include <simde/x86/avx2.h>
+#include <simde/x86/avx512.h>
+#include <simde/x86/sse2.h>
 
 #include <algorithm>
 #include <chrono>
@@ -25,12 +27,31 @@ double bench(size_t n, size_t iterations) {
     for (size_t it = 0; it < iterations; ++it) {
         changed.clear();
         size_t limit = std::min(prev.size(), cells.size());
+#if defined(SIMDE_X86_AVX512F_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 512)
+        constexpr size_t simdBytes = 64;
+#elif defined(SIMDE_X86_AVX2_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 256)
         constexpr size_t simdBytes = 32;
+#else
+        constexpr size_t simdBytes = 16;
+#endif
         size_t elemsPerVec = simdBytes / sizeof(T);
         size_t vecEnd = (limit / elemsPerVec) * elemsPerVec;
         const uint8_t* curr = reinterpret_cast<const uint8_t*>(cells.data());
         const uint8_t* old = reinterpret_cast<const uint8_t*>(prev.data());
         for (size_t off = 0; off < vecEnd * sizeof(T); off += simdBytes) {
+#if defined(SIMDE_X86_AVX512F_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 512)
+            simde__m512i a = simde_mm512_loadu_si512(curr + off);
+            simde__m512i b = simde_mm512_loadu_si512(old + off);
+            simde__mmask64 mask = simde_mm512_cmpeq_epi8_mask(a, b);
+            if (mask != UINT64_MAX) {
+                size_t base = off / sizeof(T);
+                for (size_t j = 0; j < simdBytes; j += sizeof(T)) {
+                    uint64_t lane = (mask >> j) & ((1ull << sizeof(T)) - 1ull);
+                    if (lane != ((1ull << sizeof(T)) - 1ull))
+                        changed.push_back(base + j / sizeof(T));
+                }
+            }
+#elif defined(SIMDE_X86_AVX2_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 256)
             auto a = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(curr + off));
             auto b = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(old + off));
             auto eq = simde_mm256_cmpeq_epi8(a, b);
@@ -42,6 +63,19 @@ double bench(size_t n, size_t iterations) {
                     if (lane != ((1u << sizeof(T)) - 1u)) changed.push_back(base + j / sizeof(T));
                 }
             }
+#else
+            auto a = simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(curr + off));
+            auto b = simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(old + off));
+            auto eq = simde_mm_cmpeq_epi8(a, b);
+            uint32_t mask = simde_mm_movemask_epi8(eq);
+            if (mask != 0xFFFFu) {
+                size_t base = off / sizeof(T);
+                for (size_t j = 0; j < simdBytes; j += sizeof(T)) {
+                    uint32_t lane = (mask >> j) & ((1u << sizeof(T)) - 1u);
+                    if (lane != ((1u << sizeof(T)) - 1u)) changed.push_back(base + j / sizeof(T));
+                }
+            }
+#endif
         }
         for (size_t i = vecEnd; i < limit; ++i) {
             if (cells[i] != prev[i]) changed.push_back(i);
