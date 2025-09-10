@@ -7,7 +7,7 @@ if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
 endif()
 project(goof2 LANGUAGES C CXX)
 
-# Suppress noisy warnings originating from third-party CMake projects.
+#Suppress noisy warnings originating from third - party CMake projects.
 set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE BOOL "" FORCE)
 
@@ -203,7 +203,7 @@ if(IS_DIRECTORY ${XXHASH_SOURCE_DIR} AND EXISTS ${XXHASH_SOURCE_DIR}/xxhash.h)
         target_include_directories(xxhash INTERFACE ${XXHASH_SOURCE_DIR})
     endif()
 else()
-    # xxhash commit from tag v0.8.3
+#xxhash commit from tag v0.8.3
     set(XXHASH_COMMIT e626a72bc2321cd320e953a0ccf1584cad60f363)
     if(GIT_PROGRAM)
         FetchContent_Declare(xxhash
@@ -228,9 +228,14 @@ endif()
 
 set(PCH_HEADER include/pch.hxx)
 set(VM_SOURCES
-    src/vm.cxx
+    src/vm/executor.cxx
+    src/vm/memory.cxx
+    src/vm/optimizer.cxx
     src/loop_cache.cxx
     include/vm.hxx
+    include/vm/memory.hxx
+    include/vm/optimizer.hxx
+    include/vm/executor.hxx
 )
 
 add_library(vm ${VM_SOURCES})
@@ -263,8 +268,8 @@ set(PROJECT_SOURCES ${EXEC_SOURCES} ${VM_SOURCES} ${PCH_HEADER})
 add_executable(goof2
     ${EXEC_SOURCES}
 )
-# Build a dedicated PCH for the executable to avoid flag-mismatch warnings
-# when the exe uses different compile flags than the vm library.
+#Build a dedicated PCH for the executable to avoid flag - mismatch warnings
+#when the exe uses different compile flags than the vm library.
 target_precompile_headers(goof2 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/${PCH_HEADER}>")
 
 target_link_libraries(goof2 PRIVATE
