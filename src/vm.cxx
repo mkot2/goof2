@@ -2140,8 +2140,9 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
     bool sparse = spanInfo.sparse;
     size_t key = 0;
     std::vector<instruction>* cacheVec = nullptr;
+    std::unique_lock<std::mutex> cacheLock;
     if (cache) {
-        std::lock_guard<std::mutex> lock(cacheMutex);
+        cacheLock = std::unique_lock<std::mutex>(cacheMutex);
         if (cache->empty()) {
             cache->reserve(kCacheExpectedEntries);
             cacheUsage.clear();
@@ -2154,6 +2155,7 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
             cacheVec = &it->second.instructions;
             cacheUsage.splice(cacheUsage.begin(), cacheUsage, it->second.usageIter);
             sparse = it->second.sparse;
+            cacheLock.unlock();
         } else {
             if (it == cache->end()) {
                 auto [newIt, inserted] = cache->emplace(key, CacheEntry{});
@@ -2228,6 +2230,7 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
                                                                  predictedSpan, profile, cacheVec);
         }
     }
+    if (cacheLock.owns_lock()) cacheLock.unlock();
     if (profile)
         profile->seconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
