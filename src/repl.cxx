@@ -9,8 +9,11 @@
 
 #include <linenoise.h>
 #include <simde/x86/avx2.h>
+#include <simde/x86/avx512.h>
+#include <simde/x86/sse2.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -145,12 +148,31 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
         if (cfg.highlightChanges) {
             changed.clear();
             size_t limit = std::min(prevCells.size(), cells.size());
+#if defined(SIMDE_X86_AVX512F_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 512)
+            constexpr size_t simdBytes = 64;
+#elif defined(SIMDE_X86_AVX2_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 256)
             constexpr size_t simdBytes = 32;
+#else
+            constexpr size_t simdBytes = 16;
+#endif
             size_t elemsPerVec = simdBytes / sizeof(CellT);
             size_t vecEnd = (limit / elemsPerVec) * elemsPerVec;
             const uint8_t* curr = reinterpret_cast<const uint8_t*>(cells.data());
             const uint8_t* prev = reinterpret_cast<const uint8_t*>(prevCells.data());
             for (size_t off = 0; off < vecEnd * sizeof(CellT); off += simdBytes) {
+#if defined(SIMDE_X86_AVX512F_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 512)
+                simde__m512i a = simde_mm512_loadu_si512(curr + off);
+                simde__m512i b = simde_mm512_loadu_si512(prev + off);
+                simde__mmask64 mask = simde_mm512_cmpeq_epi8_mask(a, b);
+                if (mask != UINT64_MAX) {
+                    size_t base = off / sizeof(CellT);
+                    for (size_t j = 0; j < simdBytes; j += sizeof(CellT)) {
+                        uint64_t lane = (mask >> j) & ((1ull << sizeof(CellT)) - 1ull);
+                        if (lane != ((1ull << sizeof(CellT)) - 1ull))
+                            changed.push_back(base + j / sizeof(CellT));
+                    }
+                }
+#elif defined(SIMDE_X86_AVX2_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 256)
                 auto a = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(curr + off));
                 auto b = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(prev + off));
                 auto eq = simde_mm256_cmpeq_epi8(a, b);
@@ -163,6 +185,20 @@ int runRepl(std::vector<CellT>& cells, size_t& cellPtr, ReplConfig& cfg) {
                             changed.push_back(base + j / sizeof(CellT));
                     }
                 }
+#else
+                auto a = simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(curr + off));
+                auto b = simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(prev + off));
+                auto eq = simde_mm_cmpeq_epi8(a, b);
+                uint32_t mask = simde_mm_movemask_epi8(eq);
+                if (mask != 0xFFFFu) {
+                    size_t base = off / sizeof(CellT);
+                    for (size_t j = 0; j < simdBytes; j += sizeof(CellT)) {
+                        uint32_t lane = (mask >> j) & ((1u << sizeof(CellT)) - 1u);
+                        if (lane != ((1u << sizeof(CellT)) - 1u))
+                            changed.push_back(base + j / sizeof(CellT));
+                    }
+                }
+#endif
             }
             for (size_t i = vecEnd; i < limit; ++i) {
                 if (cells[i] != prevCells[i]) changed.push_back(i);
