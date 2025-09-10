@@ -14,6 +14,7 @@
 #include "vm.hxx"
 
 #define XXH_INLINE_ALL
+#include <simde/x86/avx2.h>
 #include <xxhash.h>
 
 #include <algorithm>
@@ -1329,12 +1330,50 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
     CellT* __restrict cell = cellBase + cellPtr;
     size_t osSize = cells.size();
     if constexpr (Sparse) {
+#if defined(SIMDE_X86_AVX2_NATIVE) || (SIMDE_NATURAL_VECTOR_SIZE >= 256)
+        size_t i = 0;
+        constexpr size_t lanes = 32 / sizeof(CellT);
+        const simde__m256i zeroVec = simde_mm256_setzero_si256();
+        for (; i + lanes <= cells.size(); i += lanes) {
+            simde__m256i vec =
+                simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(cellBase + i));
+            simde__m256i cmp;
+            if constexpr (sizeof(CellT) == 1) {
+                cmp = simde_mm256_cmpeq_epi8(vec, zeroVec);
+            } else if constexpr (sizeof(CellT) == 2) {
+                cmp = simde_mm256_cmpeq_epi16(vec, zeroVec);
+            } else if constexpr (sizeof(CellT) == 4) {
+                cmp = simde_mm256_cmpeq_epi32(vec, zeroVec);
+            } else {
+                cmp = simde_mm256_cmpeq_epi64(vec, zeroVec);
+            }
+            uint32_t mask = ~static_cast<uint32_t>(simde_mm256_movemask_epi8(cmp));
+            if (mask) {
+                constexpr size_t bytes = sizeof(CellT);
+                constexpr uint32_t laneMask = (uint32_t(1) << bytes) - 1u;
+                for (size_t lane = 0; lane < lanes; ++lane) {
+                    if (mask & (laneMask << (lane * bytes))) {
+                        const size_t idx = i + lane;
+                        sparseTape.emplace_back(idx, cellBase[idx]);
+                        if (idx > sparseMaxIndex) sparseMaxIndex = idx;
+                    }
+                }
+            }
+        }
+        for (; i < cells.size(); ++i) {
+            if (cellBase[i] != 0) {
+                sparseTape.emplace_back(i, cellBase[i]);
+                if (i > sparseMaxIndex) sparseMaxIndex = i;
+            }
+        }
+#else
         for (size_t i = 0; i < cells.size(); ++i) {
             if (cells[i] != 0) {
                 sparseTape.emplace_back(i, cells[i]);
                 if (i > sparseMaxIndex) sparseMaxIndex = i;
             }
         }
+#endif
     }
     if constexpr (!Sparse) {
 #if GOOF2_HAS_OS_VM

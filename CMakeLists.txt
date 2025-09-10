@@ -273,7 +273,7 @@ target_link_libraries(goof2 PRIVATE
 )
 if(GOOF2_ENABLE_REPL)
     target_link_libraries(goof2 PRIVATE linenoise)
-    target_include_directories(goof2 PRIVATE ${LINENOISE_SOURCE_DIR}/include)
+    target_include_directories(goof2 PRIVATE ${LINENOISE_SOURCE_DIR}/include ${SIMDE_INCLUDE_DIR})
     if (WIN32)
 #Needed for CommandLineToArgvW on MinGW / Windows builds
         target_link_libraries(goof2 PRIVATE shell32)
