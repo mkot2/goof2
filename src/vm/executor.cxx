@@ -12,6 +12,8 @@
 #endif
 
 #include "vm.hxx"
+#include "vm/memory.hxx"
+#include "vm/optimizer.hxx"
 
 #define XXH_INLINE_ALL
 #include <simde/x86/avx2.h>
@@ -43,33 +45,18 @@
 
 #include "threadPool.hxx"
 
-using SvMatch = std::match_results<std::string_view::const_iterator>;
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__unix__) || defined(__APPLE__)
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 namespace {
 constexpr std::size_t kCacheExpectedEntries = 64;
 constexpr std::size_t kCacheMaxEntries = 64;
 std::list<size_t> cacheUsage;
 std::mutex cacheMutex;
-
-struct CountingResource : std::pmr::memory_resource {
-    std::pmr::memory_resource* upstream;
-    std::size_t bytes = 0;
-
-    CountingResource(std::pmr::memory_resource* up = std::pmr::new_delete_resource())
-        : upstream(up) {}
-
-   private:
-    void* do_allocate(std::size_t s, std::size_t align) override {
-        bytes += s;
-        return upstream->allocate(s, align);
-    }
-    void do_deallocate(void* p, std::size_t s, std::size_t align) override {
-        upstream->deallocate(p, s, align);
-    }
-    bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
-        return this == &other;
-    }
-};
 }  // namespace
 
 inline int32_t fold(std::string_view code, size_t& i, char match) {
@@ -81,121 +68,7 @@ inline int32_t fold(std::string_view code, size_t& i, char match) {
     return count;
 }
 
-inline std::string processBalanced(std::string_view s, char no1, char no2) {
-    const auto total = std::ranges::count(s, no1) - std::ranges::count(s, no2);
-    return std::string(std::abs(total), total > 0 ? no1 : no2);
-}
-
-// Combine clear-then-set (C[+-]+ -> S[+-]+) and collapse C{2,} -> C in one pass.
-// (postClearPass removed at user request; kept regex-based passes instead)
-
-template <typename Callback>
-inline void regexReplaceInplace(std::string& str, const std::regex& re, Callback cb) {
-    std::string_view sv{str};
-    using Iterator = std::string_view::const_iterator;
-
-    // Fast path: if there are no matches, avoid rebuilding the string.
-    std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end;
-    if (it == end) return;
-
-    std::string result;
-    result.reserve(str.size());
-
-    Iterator last = sv.begin();
-    do {
-        const SvMatch& m = *it;
-        result.append(last, m[0].first);
-        result += cb(m);
-        last = m[0].second;
-    } while (++it != end);
-    result.append(last, sv.end());
-    str = std::move(result);
-}
-
-struct RegexReplacement {
-    size_t start;
-    size_t end;
-    std::string text;
-    std::function<void()> sideEffect;
-};
-
-template <typename Callback>
-std::pmr::vector<RegexReplacement> regexCollect(const std::string& str, const std::regex& re,
-                                                Callback cb, std::pmr::memory_resource* mr) {
-    std::pmr::vector<RegexReplacement> reps{mr};
-    // Heuristic: reserve some space to reduce reallocations on dense matches.
-    reps.reserve(std::max<size_t>(8, str.size() / 16));
-    std::string_view sv{str};
-    using Iterator = std::string_view::const_iterator;
-    for (std::regex_iterator<Iterator> it(sv.begin(), sv.end(), re), end; it != end; ++it) {
-        const SvMatch& m = *it;
-        auto [rep, eff] = cb(m);
-        reps.push_back({static_cast<size_t>(m[0].first - sv.begin()),
-                        static_cast<size_t>(m[0].second - sv.begin()), std::move(rep),
-                        std::move(eff)});
-    }
-    return reps;
-}
-
-#if defined(_WIN32)
-#include <windows.h>
-#elif defined(__unix__) || defined(__APPLE__)
-#include <sys/mman.h>
-#include <unistd.h>
-#endif
-
-#if GOOF2_HAS_OS_VM
-namespace goof2 {
-#ifdef _WIN32
-static void* default_os_alloc(size_t bytes) {
-    // Prefer reserving a large contiguous region and committing on demand to
-    // reduce working set for long-running programs. Fall back to simple
-    // reserve+commit of the requested size if large reservation fails.
-    // Note: MEM_RELEASE ignores size; passing 0 frees the entire region.
-    const size_t maxReserve = static_cast<size_t>(GOOF2_TAPE_MAX_BYTES);
-    void* base = VirtualAlloc(nullptr, maxReserve, MEM_RESERVE, PAGE_READWRITE);
-    if (base) {
-        // Commit only the currently needed portion.
-        void* commit = VirtualAlloc(base, bytes, MEM_COMMIT, PAGE_READWRITE);
-        if (commit) return base;
-        // Commit failed; release reservation and fall back.
-        VirtualFree(base, 0, MEM_RELEASE);
-    }
-    // Fallback: reserve+commit exactly the requested size.
-    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-}
-static void default_os_free(void* ptr, size_t) { VirtualFree(ptr, 0, MEM_RELEASE); }
-#else
-static void* default_os_alloc(size_t bytes) {
-    return mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-}
-static void default_os_free(void* ptr, size_t bytes) { munmap(ptr, bytes); }
-#endif
-void* (*os_alloc)(size_t) = default_os_alloc;
-void (*os_free)(void*, size_t) = default_os_free;
-}  // namespace goof2
-#endif
-
 using goof2::MemoryModel;
-
-namespace goof2::vmRegex {
-using namespace std::regex_constants;
-static const std::regex nonInstructionRe(R"([^+\-<>\.,\]\[])", optimize | nosubs);
-static const std::regex balanceSeqRe(R"([+-]{2,}|[><]{2,})", optimize | nosubs);
-static const std::regex clearLoopRe(R"([+-]*\[[+-]+\](?:\[[+-]+\])*)", optimize | nosubs);
-static const std::regex scanLoopClrRe(R"(\[-[<>]+\]|\[[<>]\[-\]\])", optimize | nosubs);
-static const std::regex scanLoopRe(R"(\[[<>]+\])", optimize | nosubs);
-static const std::regex commaTrimRe(R"([+\-C]+,)", optimize | nosubs);
-static const std::regex clearThenSetRe(R"(C([+-]+))", optimize);
-// We only use the full match for copy-loop detection; avoid submatch overhead.
-static const std::regex copyLoopRe(R"(\[-((?:[<>]+[+-]+)+)[<>]+\]|\[((?:[<>]+[+-]+)+)[<>]+-\])",
-                                   optimize);
-static const std::regex leadingSetRe(R"((?:^|([RL\]]))C*([\+\-]+))", optimize);
-static const std::regex copyLoopInnerRe(R"((?:<+|>+)[+-]+)", optimize | nosubs);
-static const std::regex clearSeqRe(R"(C{2,})", optimize | nosubs);
-// Combined clear pass: C([+-]+) -> S[+-]+   and   C{2,} -> C
-static const std::regex clearPassRe(R"((C([+-]+))|C{2,})", optimize);
-}  // namespace goof2::vmRegex
 
 #if defined(SIMDE_ARCH_AARCH64)
 #include "simde/arm/neon.h"
@@ -1246,23 +1119,23 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 std::vector<instruction>* cached) {
     constexpr std::size_t bufSize = 64 * 1024;
     std::array<std::byte, bufSize> mainBuf{};
-    CountingResource mainCount;
+    goof2::CountingResource mainCount;
     std::pmr::monotonic_buffer_resource mainMr(mainBuf.data(), mainBuf.size(), &mainCount);
 
     std::array<std::byte, bufSize> clearBuf{};
-    CountingResource clearCount;
+    goof2::CountingResource clearCount;
     std::pmr::monotonic_buffer_resource clearMr(clearBuf.data(), clearBuf.size(), &clearCount);
 
     std::array<std::byte, bufSize> scanBuf{};
-    CountingResource scanCount;
+    goof2::CountingResource scanCount;
     std::pmr::monotonic_buffer_resource scanMr(scanBuf.data(), scanBuf.size(), &scanCount);
 
     std::array<std::byte, bufSize> commaBuf{};
-    CountingResource commaCount;
+    goof2::CountingResource commaCount;
     std::pmr::monotonic_buffer_resource commaMr(commaBuf.data(), commaBuf.size(), &commaCount);
 
     std::array<std::byte, bufSize> copyBuf{};
-    CountingResource copyCount;
+    goof2::CountingResource copyCount;
     std::pmr::monotonic_buffer_resource copyMr(copyBuf.data(), copyBuf.size(), &copyCount);
 
     std::vector<instruction> localInstructions;
@@ -1290,26 +1163,26 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
         if (optimize) {
             static goof2::ThreadPool pool;
             pool.submit([&code]() {
-                    regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
-                                        [](const SvMatch&) { return std::string{}; });
+                    goof2::regexReplaceInplace(code, goof2::vmRegex::nonInstructionRe,
+                                               [](const SvMatch&) { return std::string{}; });
                 })
                 .get();
             pool.submit([&code]() {
-                    regexReplaceInplace(code, goof2::vmRegex::balanceSeqRe,
-                                        [](const SvMatch& what) {
-                                            std::string_view current{
-                                                what[0].first, static_cast<size_t>(what.length())};
-                                            const char first = current[0];
-                                            return (first == '+' || first == '-')
-                                                       ? processBalanced(current, '+', '-')
-                                                       : processBalanced(current, '>', '<');
-                                        });
+                    goof2::regexReplaceInplace(
+                        code, goof2::vmRegex::balanceSeqRe, [](const SvMatch& what) {
+                            std::string_view current{what[0].first,
+                                                     static_cast<size_t>(what.length())};
+                            const char first = current[0];
+                            return (first == '+' || first == '-')
+                                       ? goof2::processBalanced(current, '+', '-')
+                                       : goof2::processBalanced(current, '>', '<');
+                        });
                 })
                 .get();
 
             const std::string baseCode = code;
             auto clearFuture = pool.submit([baseCode, &clearMr]() {
-                return regexCollect(
+                return goof2::regexCollect(
                     baseCode, goof2::vmRegex::clearLoopRe,
                     [](const SvMatch&) {
                         return std::pair<std::string, std::function<void()>>{std::string("C"), {}};
@@ -1317,9 +1190,9 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                     &clearMr);
             });
             auto scanFuture = pool.submit([baseCode, &scanloopMap, &scanloopClrMap, &scanMr]() {
-                std::pmr::vector<RegexReplacement> reps{&scanMr};
+                std::pmr::vector<goof2::RegexReplacement> reps{&scanMr};
                 auto collect = [&](const std::regex& re, bool clrFlag) {
-                    auto vec = regexCollect(
+                    auto vec = goof2::regexCollect(
                         baseCode, re,
                         [&](const SvMatch& what) {
                             std::string_view current{what[0].first,
@@ -1349,7 +1222,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
                 return reps;
             });
             auto commaFuture = pool.submit([baseCode, &commaMr]() {
-                return regexCollect(
+                return goof2::regexCollect(
                     baseCode, goof2::vmRegex::commaTrimRe,
                     [](const SvMatch&) {
                         return std::pair<std::string, std::function<void()>>{std::string(","), {}};
@@ -1359,7 +1232,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
             // Compute copy-loop replacements in parallel and aggregate with others.
             auto copyFuture = pool.submit([baseCode, &copyloopMap, &copyMr]() {
-                return regexCollect(
+                return goof2::regexCollect(
                     baseCode, goof2::vmRegex::copyLoopRe,
                     [&](const SvMatch& what) {
                         int offset = 0;
@@ -1425,7 +1298,7 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
             auto scanReps = scanFuture.get();
             auto commaReps = commaFuture.get();
             auto copyReps = copyFuture.get();
-            std::pmr::vector<RegexReplacement> allReps{&mainMr};
+            std::pmr::vector<goof2::RegexReplacement> allReps{&mainMr};
             allReps.reserve(clearReps.size() + scanReps.size() + commaReps.size() +
                             copyReps.size());
             allReps.insert(allReps.end(), clearReps.begin(), clearReps.end());
@@ -1449,14 +1322,15 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
             // Single-pass clear transforms: C([+-]+) -> S[+-]+ and C{2,} -> C
             pool.submit([&code]() {
-                    regexReplaceInplace(code, goof2::vmRegex::clearPassRe, [](const SvMatch& what) {
-                        if (what[2].matched) {
-                            std::string result{"S"};
-                            result.append(what[2].first, what[2].second);
-                            return result;
-                        }
-                        return std::string("C");
-                    });
+                    goof2::regexReplaceInplace(code, goof2::vmRegex::clearPassRe,
+                                               [](const SvMatch& what) {
+                                                   if (what[2].matched) {
+                                                       std::string result{"S"};
+                                                       result.append(what[2].first, what[2].second);
+                                                       return result;
+                                                   }
+                                                   return std::string("C");
+                                               });
                 })
                 .get();
 
@@ -1464,14 +1338,14 @@ int executeImpl(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, b
 
             if constexpr (!Term)
                 pool.submit([&code]() {
-                        regexReplaceInplace(code, goof2::vmRegex::leadingSetRe,
-                                            [](const SvMatch& what) {
-                                                std::string result;
-                                                result.append(what[1].first, what[1].second);
-                                                result += 'S';
-                                                result.append(what[2].first, what[2].second);
-                                                return result;
-                                            });
+                        goof2::regexReplaceInplace(code, goof2::vmRegex::leadingSetRe,
+                                                   [](const SvMatch& what) {
+                                                       std::string result;
+                                                       result.append(what[1].first, what[1].second);
+                                                       result += 'S';
+                                                       result.append(what[2].first, what[2].second);
+                                                       return result;
+                                                   });
                     })
                     .get();  // We can't really assume in term
 
