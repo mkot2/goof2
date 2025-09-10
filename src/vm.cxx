@@ -2495,6 +2495,28 @@ static SpanInfo analyzeSpan(std::string_view code) {
 }
 
 template <typename CellT>
+int executeDispatch(bool dynamicSize, bool sparse, bool term, std::vector<CellT>& cells,
+                    size_t& cellPtr, std::string& code, bool optimize, int eof, MemoryModel model,
+                    bool adaptive, size_t span, goof2::ProfileInfo* profile,
+                    std::vector<instruction>* cached) {
+    using Fn = int (*)(std::vector<CellT>&, size_t&, std::string&, bool, int, MemoryModel, bool,
+                       size_t, goof2::ProfileInfo*, std::vector<instruction>*);
+    static constexpr std::array<Fn, 8> table{{
+        &executeImpl<CellT, false, false, false>,
+        &executeImpl<CellT, false, true, false>,
+        &executeImpl<CellT, false, false, true>,
+        &executeImpl<CellT, false, true, true>,
+        &executeImpl<CellT, true, false, false>,
+        &executeImpl<CellT, true, true, false>,
+        &executeImpl<CellT, true, false, true>,
+        &executeImpl<CellT, true, true, true>,
+    }};
+    unsigned idx = (static_cast<unsigned>(dynamicSize) << 2) |
+                   (static_cast<unsigned>(sparse) << 1) | static_cast<unsigned>(term);
+    return table[idx](cells, cellPtr, code, optimize, eof, model, adaptive, span, profile, cached);
+}
+
+template <typename CellT>
 int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code, bool optimize,
                    int eof, bool dynamicSize, bool term, MemoryModel model, ProfileInfo* profile,
                    InstructionCache* cache) {
@@ -2565,39 +2587,8 @@ int goof2::execute(std::vector<CellT>& cells, size_t& cellPtr, std::string& code
         (model == MemoryModel::Contiguous || model == MemoryModel::Fibonacci)) {
         cells.reserve(predictedSpan);
     }
-    if (dynamicSize) {
-        if (sparse) {
-            term ? ret = executeImpl<CellT, true, true, true>(cells, cellPtr, code, optimize, eof,
-                                                              model, adaptive, predictedSpan,
-                                                              profile, cacheVec)
-                 : ret = executeImpl<CellT, true, false, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, predictedSpan,
-                                                               profile, cacheVec);
-        } else {
-            term ? ret = executeImpl<CellT, true, true, false>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, predictedSpan,
-                                                               profile, cacheVec)
-                 : ret = executeImpl<CellT, true, false, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, predictedSpan,
-                                                                profile, cacheVec);
-        }
-    } else {
-        if (sparse) {
-            term ? ret = executeImpl<CellT, false, true, true>(cells, cellPtr, code, optimize, eof,
-                                                               model, adaptive, predictedSpan,
-                                                               profile, cacheVec)
-                 : ret = executeImpl<CellT, false, false, true>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, predictedSpan,
-                                                                profile, cacheVec);
-        } else {
-            term ? ret = executeImpl<CellT, false, true, false>(cells, cellPtr, code, optimize, eof,
-                                                                model, adaptive, predictedSpan,
-                                                                profile, cacheVec)
-                 : ret = executeImpl<CellT, false, false, false>(cells, cellPtr, code, optimize,
-                                                                 eof, model, adaptive,
-                                                                 predictedSpan, profile, cacheVec);
-        }
-    }
+    ret = executeDispatch<CellT>(dynamicSize, sparse, term, cells, cellPtr, code, optimize, eof,
+                                 model, adaptive, predictedSpan, profile, cacheVec);
     if (cacheLock.owns_lock()) cacheLock.unlock();
     if (profile)
         profile->seconds =
